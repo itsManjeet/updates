@@ -1,6 +1,4 @@
-use std::path::PathBuf;
-
-use clap::{ArgMatches, Command};
+use clap::{Arg, ArgAction, ArgMatches, Command};
 use ostree::{
     gio::Cancellable, AsyncProgress, RepoPullFlags, Sysroot, SysrootUpgrader,
     SysrootUpgraderPullFlags,
@@ -20,13 +18,18 @@ pub fn cmd() -> Command {
     Command::new("upgrade")
         .about("Upgrade System")
         .long_about("Check and apply system updates")
+        .arg(
+            Arg::new("check")
+                .short('c')
+                .long("check")
+                .help("Check for updates only")
+                .action(ArgAction::SetTrue),
+        )
 }
 
 pub async fn run(args: &ArgMatches) -> Result<(), Error> {
     let cancellable = Cancellable::NONE;
-    let sysroot_path = args.get_one::<PathBuf>("sysroot").unwrap();
-    let sysroot_file = ostree::gio::File::for_uri(&sysroot_path.to_str().unwrap());
-    let sysroot = Sysroot::new(Some(&sysroot_file));
+    let sysroot = Sysroot::new_default();
 
     sysroot.load(cancellable)?;
 
@@ -63,23 +66,32 @@ pub async fn run(args: &ArgMatches) -> Result<(), Error> {
 
     let rev = repo.resolve_rev(&origin_ref_spec.as_str(), false)?.unwrap();
 
-    for deployment in sysroot.deployments() {
-        if deployment.csum() == rev {
-            println!("Latest revision already deployed; pending reboot");
-            return Ok(());
+    if args.get_flag("check") {
+        let commit_info = repo.load_variant(ostree::ObjectType::Commit, rev.as_str())?;
+        let subject = commit_info.child_get::<String>(3);
+        let body = commit_info.child_get::<String>(4);
+        let timestamp = commit_info.child_get::<u64>(5);
+
+        println!("{timestamp}:{subject}\n{body}");
+    } else {
+        for deployment in sysroot.deployments() {
+            if deployment.csum() == rev {
+                println!("Latest revision already deployed; pending reboot");
+                return Ok(());
+            }
         }
+
+        upgrader.pull(
+            RepoPullFlags::NONE,
+            SysrootUpgraderPullFlags::NONE,
+            Some(&progress),
+            cancellable,
+        )?;
+        progress.finish();
+
+        upgrader.deploy(cancellable)?;
+        println!("Upgrade successfull!");
     }
 
-    upgrader.pull(
-        RepoPullFlags::NONE,
-        SysrootUpgraderPullFlags::NONE,
-        Some(&progress),
-        cancellable,
-    )?;
-    progress.finish();
-
-    upgrader.deploy(cancellable)?;
-
-    println!("Upgrade successfull!");
     Ok(())
 }
