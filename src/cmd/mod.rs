@@ -7,11 +7,15 @@ use thiserror::Error;
 pub enum Error {
     #[error("Upgrade")]
     Upgrade(#[from] upgrade::Error),
+    #[error("Status")]
+    Status(#[from] status::Error),
 }
 
+mod status;
 mod upgrade;
 
 pub async fn run() -> Result<(), Error> {
+    
     let matches = Command::new("swupd")
         .about("Software Updater daemon")
         .arg(
@@ -30,6 +34,7 @@ pub async fn run() -> Result<(), Error> {
         )
         .arg_required_else_help(true)
         .subcommand(upgrade::cmd())
+        .subcommand(status::cmd())
         .get_matches();
 
     if matches.get_flag("version") {
@@ -39,6 +44,7 @@ pub async fn run() -> Result<(), Error> {
 
     match matches.subcommand() {
         Some(("upgrade", args)) => upgrade::run(args).await.map_err(Error::Upgrade),
+        Some(("status", args)) => status::run(args).await.map_err(Error::Status),
         _ => unreachable!(),
     }
 }
