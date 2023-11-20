@@ -66,15 +66,8 @@ pub async fn run(args: &ArgMatches) -> Result<(), Error> {
 
     progress.connect_changed(progress_callback);
 
-    let flags: RepoPullFlags;
-    if check_only {
-        flags = RepoPullFlags::COMMIT_ONLY;
-    } else {
-        flags = RepoPullFlags::NONE;
-    }
-
     let updates_available = upgrader.pull(
-        flags,
+        RepoPullFlags::COMMIT_ONLY,
         SysrootUpgraderPullFlags::NONE,
         Some(&progress),
         cancellable,
@@ -101,22 +94,22 @@ pub async fn run(args: &ArgMatches) -> Result<(), Error> {
 
         println!("{timestamp}:{subject}\n{body}");
     } else {
-        // for deployment in sysroot.deployments() {
-        //     if deployment.csum() == rev {
-        //         println!("Latest revision already deployed; pending reboot");
-        //         return Ok(());
-        //     }
-        // }
+        for deployment in sysroot.deployments() {
+            if deployment.csum() == rev {
+                println!("Latest revision already deployed; pending reboot");
+                return Ok(());
+            }
+        }
 
-        // upgrader.pull(
-        //     RepoPullFlags::NONE,
-        //     SysrootUpgraderPullFlags::NONE,
-        //     Some(&progress),
-        //     cancellable,
-        // )?;
+        upgrader.pull(
+            RepoPullFlags::NONE,
+            SysrootUpgraderPullFlags::NONE,
+            Some(&progress),
+            cancellable,
+        )?;
 
-        // progress.finish();
-        // println!();
+        progress.finish();
+        println!();
 
         upgrader.deploy(cancellable)?;
 
