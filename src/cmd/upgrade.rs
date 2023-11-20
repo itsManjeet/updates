@@ -30,6 +30,13 @@ pub fn cmd() -> Command {
                 .help("Check for updates only")
                 .action(ArgAction::SetTrue),
         )
+        .arg(
+            Arg::new("force")
+                .short('f')
+                .long("force")
+                .help("Force pull updates")
+                .action(ArgAction::SetTrue),
+        )
 }
 
 pub async fn run(args: &ArgMatches) -> Result<(), Error> {
@@ -64,7 +71,6 @@ pub async fn run(args: &ArgMatches) -> Result<(), Error> {
                 message.push_str("caught error, waiting for outstanding tasks");
             }
         } else if outstanding_fetches > 0  {
-            // let outstanding_fetches = outstanding_fetches.get::<u32>().unwrap();
             let bytes_sec: u64;
             let mut formatted_bytes_sec = String::new();
             let bytes_transferred = p
@@ -169,19 +175,24 @@ pub async fn run(args: &ArgMatches) -> Result<(), Error> {
                 scanned_metadata
             ));
         }
-        print!("\r{}", message);
+        println!("{}", message);
     });
 
-    if !upgrader.pull(
+    let updates_available = upgrader.pull(
         RepoPullFlags::COMMIT_ONLY,
         SysrootUpgraderPullFlags::NONE,
         Some(&progress),
         cancellable,
-    )? {
-        progress.finish();
+    )?;
+    progress.finish();
+    
 
+    if !updates_available {
         println!("\nno updates available");
-        return Ok(());
+        if !args.get_flag("force") {
+            return Ok(());
+        }
+        println !("force pull");
     }
 
     progress.finish();
@@ -189,9 +200,7 @@ pub async fn run(args: &ArgMatches) -> Result<(), Error> {
 
     let repo = sysroot.repo();
     let origin = upgrader.origin().unwrap();
-
     let origin_ref_spec = origin.string("origin", "refspec")?;
-
     let rev = repo.resolve_rev(&origin_ref_spec.as_str(), false)?.unwrap();
 
     if args.get_flag("check") {
@@ -211,12 +220,11 @@ pub async fn run(args: &ArgMatches) -> Result<(), Error> {
 
         upgrader.pull(
             RepoPullFlags::NONE,
-            SysrootUpgraderPullFlags::ALLOW_OLDER,
+            SysrootUpgraderPullFlags::NONE,
             Some(&progress),
             cancellable,
         )?;
 
-        sysroot.cleanup(cancellable)?;
         progress.finish();
         println!();
 

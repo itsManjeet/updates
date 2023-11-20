@@ -5,15 +5,23 @@ mod cmd;
 #[tokio::main]
 async fn main() {
     if let Err(error) = cmd::run().await {
-        let error: cmd::Error = error;
-        let mut source = error.source();
-        eprint!("ERROR");
-        while let Some(e) = source.take() {
-            eprint!("::{e}");
-            source = e.source();
-        }
-        eprintln!();
-
+        report_error(error);
         std::process::exit(1);
     }
+}
+
+fn report_error(error: cmd::Error) {
+    let sources = sources(&error);
+    let error = sources.join(": ");
+    eprintln!("ERROR: {error}");
+}
+
+fn sources(error: &cmd::Error) -> Vec<String> {
+    let mut sources = vec![error.to_string()];
+    let mut source = error.source();
+    while let Some(error) = source.take() {
+        sources.push(error.to_string());
+        source = error.source();
+    }
+    sources
 }
