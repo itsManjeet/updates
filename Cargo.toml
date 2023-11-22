@@ -12,6 +12,7 @@ console = "0.15.7"
 humansize = "2.1.3"
 humantime = "2.1.0"
 indicatif = "0.17.7"
+nix = { version = "0.27.1", features = ["user"] }
 ostree = { version = "0.19.1", features = ["v2022_6"] }
 syscalls = { version = "0.6.15", features = ["x86_64"] }
 thiserror = "1.0.50"

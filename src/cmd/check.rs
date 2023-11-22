@@ -14,9 +14,7 @@ pub enum Error {
 }
 
 pub fn cmd() -> Command {
-    Command::new("upgrade")
-        .about("Upgrade System")
-        .long_about("Apply system updates")
+    Command::new("check").about("Check for system updates")
 }
 
 pub async fn run(_: &ArgMatches, engine: &Engine) -> Result<(), Error> {
@@ -26,11 +24,11 @@ pub async fn run(_: &ArgMatches, engine: &Engine) -> Result<(), Error> {
 
     engine.load(cancellable)?;
 
-    match engine.update(false, Some(&progress), cancellable).await? {
+    match engine.update(true, Some(&progress), cancellable).await? {
         UpdateResult::NoUpdates => println!("no update available"),
         UpdateResult::PendingReboot => println!("updated already deployed, waiting for reboot"),
         UpdateResult::UpdatesApplied => println!("updated applied successful!"),
-        _ => {}
+        UpdateResult::UpdatesAvailable(changelog) => println!("updates available\n{}", changelog),
     }
 
     Ok(())
