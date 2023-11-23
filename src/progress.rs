@@ -75,16 +75,14 @@ pub fn update_callback(p: &AsyncProgress) {
                 .unwrap()
                 .get::<u64>()
                 .unwrap();
-            let fetched_delta_part_fallback = p
-                .variant("fetched-delta-fallbacks")
-                .unwrap()
-                .get::<u64>()
-                .unwrap();
-            let total_delta_part_fallback = p
-                .variant("total-delta-fallbacks")
-                .unwrap()
-                .get::<u64>()
-                .unwrap();
+            let fetched_delta_part_fallback = match p.variant("fetched-delta-fallbacks") {
+                Some(value) => value.get::<u64>().unwrap(),
+                None => 0,
+            };
+            let total_delta_part_fallback = match p.variant("total-delta-fallbacks") {
+                Some(value) => value.get::<u64>().unwrap(),
+                None => 0,
+            };
 
             fetched_delta_part_size += fetched_delta_part_fallback;
             total_delta_part_size += total_delta_part_fallback;
