@@ -76,16 +76,16 @@ pub fn update_callback(p: &AsyncProgress) {
                 .get::<u64>()
                 .unwrap();
             let fetched_delta_part_fallback = match p.variant("fetched-delta-fallbacks") {
-                Some(value) => value.get::<u64>().unwrap(),
+                Some(value) => value.get::<u32>().unwrap(),
                 None => 0,
             };
             let total_delta_part_fallback = match p.variant("total-delta-fallbacks") {
-                Some(value) => value.get::<u64>().unwrap(),
+                Some(value) => value.get::<u32>().unwrap(),
                 None => 0,
             };
 
-            fetched_delta_part_size += fetched_delta_part_fallback;
-            total_delta_part_size += total_delta_part_fallback;
+            fetched_delta_part_size += fetched_delta_part_fallback as u64;
+            total_delta_part_size += total_delta_part_fallback as u64;
 
             let formatted_fetched = format_size(fetched_delta_part_size, DECIMAL);
             let formatted_total = format_size(total_delta_part_size, DECIMAL);
