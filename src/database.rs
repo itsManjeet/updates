@@ -1,6 +1,5 @@
 use crate::meta::MetaInfo;
 use chrono::prelude::*;
-use indicatif::ProgressBar;
 use std::io::Read;
 use std::{
     fs::{self, File},
@@ -27,7 +26,11 @@ impl Database {
         id.replace("/", "-")
     }
 
-    pub async fn refresh(&mut self, progress: Option<&ProgressBar>) -> Result<(), Error> {
+    pub fn iter(&self) -> std::slice::Iter<'_, MetaInfo> {
+        self.packages.iter()
+    }
+
+    pub async fn refresh(&mut self) -> Result<(), Error> {
         self.packages.clear();
         if self.path.exists() {
             let iter = fs::read_dir(&self.path)?;
@@ -39,9 +42,6 @@ impl Database {
                         let reader = File::open(&info_file)?;
                         let package: MetaInfo = serde_yaml::from_reader(reader)?;
                         self.packages.push(package);
-                        if let Some(progress) = progress {
-                            progress.inc(1);
-                        }
                     }
                 }
             }
@@ -85,7 +85,7 @@ impl Database {
         fs::write(package_path.join("files"), files.join("\n"))?;
         fs::write(package_path.join("at"), Utc::now().to_string())?;
 
-        self.refresh(None).await?;
+        self.refresh().await?;
 
         Ok(())
     }

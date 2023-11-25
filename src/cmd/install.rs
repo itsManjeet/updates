@@ -1,9 +1,17 @@
-use clap::{arg, value_parser, ArgMatches, Command};
-use swupd::engine::Engine;
+use std::time::Instant;
 
+use clap::{arg, value_parser, ArgMatches, Command};
+use console::{style, Emoji};
+use indicatif::HumanDuration;
+use swupd::engine::Engine;
 pub use swupd::engine::Error;
 
 use super::ask::ask;
+
+static LOOKING_GLASS: Emoji<'_, '_> = Emoji("🔍  ", "");
+static TICK: Emoji<'_, '_> = Emoji("✔️  ", "");
+static CLOUD: Emoji<'_, '_> = Emoji("☁️   ", "");
+static SPARKLE: Emoji<'_, '_> = Emoji("✨ ", ":-)");
 
 pub fn cmd() -> Command {
     Command::new("install")
@@ -19,26 +27,43 @@ pub async fn run(args: &ArgMatches, engine: &mut Engine) -> Result<(), Error> {
         .map(String::clone)
         .collect::<Vec<_>>();
 
+    let started = Instant::now();
+
+    println!(
+        "{} {}Syncing Repository...",
+        style("[2/4]").bold().dim(),
+        CLOUD
+    );
     engine.sync().await?;
 
-    if let Some(progress) = &engine.progress {
-        progress.set_message("RESOLVING DEPENDENCIES");
-    }
+    println!(
+        "{} {}Resolving packages...",
+        style("[3/4]").bold().dim(),
+        LOOKING_GLASS
+    );
+
     let packages = engine.resolve(&packages).await?;
     if packages.len() == 0 {
-        if let Some(progress) = &engine.progress {
-            progress.finish_with_message("Packages are already installed");
-        }
+        println!(
+            "{} {}Packages already installed!",
+            style("[4/4]").bold().dim(),
+            TICK
+        );
         return Ok(());
     }
     if packages.len() > 1 {
-        let packages_id: Vec<String> = packages.iter().map(|i| i.id.clone()).collect();
-        if !ask(&format!(
-            "{:?}\nDo you want to install above packages [y/N]: ",
-            packages_id
-        )) {
+        println!("\nFound {} package(s) required", packages.len());
+        for (position, package) in packages.iter().map(|i| i.id.clone()).enumerate() {
+            print!("{}. {}\t", position + 1, package);
+        }
+        println!();
+
+        if !ask(&format!("\nDo you want to install above packages [y/N]: ")) {
             return Ok(());
         }
     }
-    engine.install(&packages).await
+    engine.install(&packages).await?;
+    println!("{} Done in {}", SPARKLE, HumanDuration(started.elapsed()));
+
+    Ok(())
 }

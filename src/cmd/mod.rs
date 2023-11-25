@@ -1,14 +1,17 @@
-use std::path::PathBuf;
-
 use clap::{value_parser, Arg, ArgAction, Command};
-
-use indicatif::{ProgressBar, ProgressStyle};
+use console::{style, Emoji};
+use indicatif::{ProgressBar, ProgressState, ProgressStyle};
+use std::fmt::Write;
+use std::path::PathBuf;
 use swupd::engine::Engine;
 use thiserror::Error;
 
 mod ask;
 mod install;
 mod remove;
+mod search;
+
+static TRUCK: Emoji<'_, '_> = Emoji("🚚  ", "");
 
 pub async fn run() -> Result<(), Error> {
     let matches = Command::new("swupd")
@@ -42,6 +45,7 @@ pub async fn run() -> Result<(), Error> {
         .arg_required_else_help(true)
         .subcommand(install::cmd())
         .subcommand(remove::cmd())
+        .subcommand(search::cmd())
         .get_matches();
 
     if matches.get_flag("version") {
@@ -55,17 +59,21 @@ pub async fn run() -> Result<(), Error> {
     );
     let progress = ProgressBar::new(100);
     progress.set_style(
-        ProgressStyle::with_template("{pos}/{len}% {bar:40.cyan/blue} [{elapsed}] {msg}")
-            .unwrap()
-            .progress_chars("█░"),
+        ProgressStyle::with_template("{spinner:.green:5} {prefix:.bold.dim} {wide_msg}").unwrap(),
     );
-
     engine.set_progress(progress);
+
+    println!(
+        "{} {}Loading system state...",
+        style("[1/4]").bold().dim(),
+        TRUCK
+    );
     engine.load().await?;
 
     match matches.subcommand() {
         Some(("install", args)) => install::run(args, &mut engine).await.map_err(Error::Swupd),
         Some(("remove", args)) => remove::run(args, &mut engine).await.map_err(Error::Swupd),
+        Some(("search", args)) => search::run(args, &mut engine).await.map_err(Error::Swupd),
         _ => unreachable!(),
     }
 }

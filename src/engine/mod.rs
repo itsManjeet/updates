@@ -1,7 +1,18 @@
 use crate::{database::Database, meta::MetaInfo, repository::Repository};
+
+use console::{style, Emoji};
 use indicatif::ProgressBar;
-use std::{collections::HashSet, fs, io, path::PathBuf, process::Command};
+use std::{collections::HashSet, fs, io, path::PathBuf, process::Command, time::Duration};
 use thiserror::Error;
+
+static CLOUD: Emoji<'_, '_> = Emoji("☁️   ", "");
+
+pub enum ListMode {
+    Installed,
+    Remote,
+    Outdated,
+    Matched(String),
+}
 
 pub struct Engine {
     server: String,
@@ -33,22 +44,13 @@ impl Engine {
     }
 
     pub async fn load(&mut self) -> Result<(), Error> {
-        if let Some(progress) = &self.progress {
-            progress.reset();
-            progress.set_message("loading system database");
-        }
-        self.db.refresh(self.progress.as_ref()).await?;
+        self.db.refresh().await?;
         Ok(())
     }
 
     pub async fn sync(&mut self) -> Result<(), Error> {
-        if let Some(progress) = &self.progress {
-            progress.reset();
-            progress.set_message("syncing repositry");
-        }
-
         self.repo
-            .refresh(&format!("{}/origin", self.server), self.progress.as_ref())
+            .refresh(&format!("{}/origin", self.server))
             .await?;
         Ok(())
     }
@@ -88,21 +90,56 @@ impl Engine {
         Ok(())
     }
 
+    pub async fn list(&self, mode: ListMode) -> Result<Vec<MetaInfo>, Error> {
+        let packages: Vec<MetaInfo> = match mode {
+            ListMode::Installed => self.db.iter().map(|v| v.clone()).collect(),
+            ListMode::Remote => self.repo.iter().map(|v| v.clone()).collect(),
+            ListMode::Outdated => {
+                let mut packages = Vec::<MetaInfo>::new();
+                for p in self.db.iter() {
+                    if let Some(i) = self.repo.get(&p.id) {
+                        if i == p {
+                            packages.push(i.clone());
+                        }
+                    }
+                }
+                packages
+            }
+            ListMode::Matched(m) => {
+                let mut packages = Vec::<MetaInfo>::new();
+                for p in self.repo.iter() {
+                    if p.id.contains(&m) || p.about.contains(&m) {
+                        packages.push(p.clone());
+                    }
+                }
+                packages
+            }
+        };
+
+        Ok(packages)
+    }
+
     pub async fn install(&mut self, packages: &Vec<MetaInfo>) -> Result<(), Error> {
         let mut files_to_clean: Vec<String> = Vec::new();
 
         fs::create_dir_all(self.root.join(CACHE_PATH))?;
 
-        for package in packages {
-            let files: Vec<String>;
+        for (idx, package) in packages.iter().enumerate() {
+            let package_url = format!("{}/cache/{}", self.server, package.cache);
+            let package_path = self.root.join(CACHE_PATH).join(&package.cache);
 
             if let Some(progress) = &self.progress {
                 progress.reset();
-                progress.set_message(format!("GETTING {}", &package.id));
-                progress.set_length(100);
+                progress.set_prefix(format!(
+                    "[{}/{}] {} {:width$}",
+                    idx + 1,
+                    packages.len(),
+                    &package.id,
+                    ' ',
+                    width = 100 - &package.id.len(),
+                ));
+                progress.set_message("downloading...");
             }
-            let package_url = format!("{}/cache/{}", self.server, package.cache);
-            let package_path = self.root.join(CACHE_PATH).join(&package.cache);
 
             if !package_path.exists() {
                 self.repo
@@ -110,11 +147,15 @@ impl Engine {
                     .await?;
             }
 
-            // TODO: check hash with MetaInfo
-
             if let Some(progress) = &self.progress {
-                progress.set_position(60);
-                progress.set_message(format!("READING {}", &package.id));
+                progress.set_prefix(format!(
+                    "[{}/{}] {} {:<4}",
+                    idx + 1,
+                    packages.len(),
+                    &package.id,
+                    ' '
+                ));
+                progress.set_message("loading content...");
             }
             let output = Command::new("tar").arg("-tf").arg(&package_path).output()?;
             if !output.status.success() {
@@ -123,20 +164,14 @@ impl Engine {
                     String::from_utf8_lossy(&output.stderr).to_string(),
                 ));
             }
-            files = String::from_utf8_lossy(&output.stdout)
+            let files: Vec<String> = String::from_utf8_lossy(&output.stdout)
                 .to_string()
                 .split("\n")
                 .into_iter()
                 .map(|s| s.to_string())
                 .collect();
             if let Some(progress) = &self.progress {
-                progress.set_position(0);
-                progress.set_message(format!("READING {}", &package.id));
-            }
-
-            if let Some(progress) = &self.progress {
-                progress.set_position(70);
-                progress.set_message(format!("COLLECTING DEPRECATED {}", &package.id));
+                progress.set_message("collecting deprecated...");
             }
 
             if let Some(old_files) = self.db.files(&package.id)? {
@@ -148,8 +183,7 @@ impl Engine {
             }
 
             if let Some(progress) = &self.progress {
-                progress.set_position(80);
-                progress.set_message(format!("EXTRACTING {}", &package.id));
+                progress.set_message("extracting package...");
             }
             Command::new("tar")
                 .arg("-xhPf")
@@ -160,8 +194,7 @@ impl Engine {
 
             if !package.integration.is_empty() {
                 if let Some(progress) = &self.progress {
-                    progress.set_position(90);
-                    progress.set_message(format!("INTEGRATING {}", &package.id));
+                    progress.set_message("integration...");
                 }
                 Command::new("sh")
                     .arg("-c")
@@ -171,12 +204,14 @@ impl Engine {
 
             if let Some(progress) = &self.progress {
                 progress.set_position(100);
-                progress.set_message(format!("REGISTERING {}", &package.id));
+                progress.set_message("registering...");
             }
 
             self.db.add(&package, &files).await?;
+            std::thread::sleep(Duration::from_millis(50));
+
             if let Some(progress) = &self.progress {
-                progress.finish_with_message(format!("FINISHED {}", &package.id));
+                progress.set_message("finished");
                 println!();
             }
         }

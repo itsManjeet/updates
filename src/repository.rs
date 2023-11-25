@@ -1,6 +1,8 @@
 use futures_util::StreamExt;
-use indicatif::ProgressBar;
+use indicatif::{HumanBytes, ProgressBar};
+use indicatif::{ProgressState, ProgressStyle};
 use std::cmp::min;
+use std::fs::rename;
 use std::io;
 use std::io::Write;
 use std::{fs::File, path::PathBuf};
@@ -24,26 +26,12 @@ impl Repository {
         self.packages.iter()
     }
 
-    pub async fn refresh(
-        &mut self,
-        url: &str,
-        progress: Option<&ProgressBar>,
-    ) -> Result<(), Error> {
+    pub async fn refresh(&mut self, url: &str) -> Result<(), Error> {
         self.packages.clear();
         let response = reqwest::get(url).await?;
-        if let Some(progress) = progress {
-            progress.set_length(3);
-            progress.set_position(1);
-        }
         if !response.status().is_success() {
             let mesg = match response.status().canonical_reason() {
-                Some(mesg) => {
-                    if let Some(progress) = progress {
-                        progress.set_position(2);
-                        progress.set_message("connected to server");
-                    }
-                    mesg
-                }
+                Some(mesg) => mesg,
                 None => "unknown",
             };
 
@@ -51,10 +39,6 @@ impl Repository {
         }
 
         self.packages = response.json().await?;
-        if let Some(progress) = progress {
-            progress.set_position(3);
-            progress.set_message("loaded components");
-        }
         Ok(())
     }
 
@@ -77,7 +61,11 @@ impl Repository {
         let response = client.get(url).send().await?;
 
         if response.status().is_success() {
-            let mut outfile = File::create(filepath)?;
+            let mut tmpfile_path = filepath.display().to_string();
+            tmpfile_path.push_str(".tmp");
+
+            let tmpfile_path = PathBuf::from(tmpfile_path);
+            let mut outfile = File::create(&tmpfile_path)?;
             let total_size = response.content_length().ok_or(Error::InvalidUrl(
                 String::from(url),
                 String::from("failed to get content length"),
@@ -92,9 +80,16 @@ impl Repository {
                 let new = min(downloaded + (chunk.len() as u64), total_size);
                 downloaded = new;
                 if let Some(progress) = progress {
-                    progress.set_position(((new as f32 / total_size as f32) * 50.0) as u64);
+                    progress.inc(1);
+                    progress.set_prefix(format!(
+                        "[{}/{}]",
+                        HumanBytes(downloaded),
+                        HumanBytes(total_size)
+                    ));
                 }
             }
+
+            rename(tmpfile_path, filepath)?;
         }
         Ok(())
     }
