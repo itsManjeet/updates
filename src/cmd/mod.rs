@@ -49,6 +49,12 @@ pub async fn run() -> Result<(), Error> {
                 .global(true)
                 .action(ArgAction::SetTrue),
         )
+        .arg(
+            Arg::new("silent")
+                .short('s')
+                .long("silent")
+                .action(ArgAction::SetTrue),
+        )
         .arg_required_else_help(true)
         .subcommand(install::cmd())
         .subcommand(remove::cmd())
@@ -67,9 +73,11 @@ pub async fn run() -> Result<(), Error> {
     );
     let progress = ProgressBar::new(100);
     progress.set_style(
-        ProgressStyle::with_template("{spinner:.green:5} {prefix:.bold.dim} {wide_msg}").unwrap(),
+        ProgressStyle::with_template("{prefix:.bold} {spinner:.green}{wide_msg}").unwrap(),
     );
-    engine.set_progress(progress);
+    if !matches.get_flag("silent") {
+        engine.set_progress(progress);
+    }
 
     println!(
         "{} {}Loading system state...",

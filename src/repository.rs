@@ -80,7 +80,7 @@ impl Repository {
                 downloaded = new;
                 if let Some(progress) = progress {
                     progress.inc(1);
-                    progress.set_prefix(format!(
+                    progress.set_message(format!(
                         "[{}/{}]",
                         HumanBytes(downloaded),
                         HumanBytes(total_size)

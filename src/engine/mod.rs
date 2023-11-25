@@ -1,7 +1,13 @@
 use crate::{database::Database, meta::MetaInfo, repository::Repository};
-
+use console::style;
 use indicatif::ProgressBar;
-use std::{collections::HashSet, fs, io, path::PathBuf, process::Command, time::Duration};
+use std::{
+    collections::HashSet,
+    fs, io,
+    path::PathBuf,
+    process::{Command, Stdio},
+    time::Duration,
+};
 use thiserror::Error;
 
 pub enum ListMode {
@@ -53,14 +59,19 @@ impl Engine {
     }
 
     pub async fn remove(&mut self, ids: &Vec<String>) -> Result<(), Error> {
-        for id in ids {
+        for (idx, id) in ids.iter().enumerate() {
             if let Some(package) = self.db.get(id) {
                 if let Some(mut files) = self.db.files(&package.id)? {
                     files.reverse();
                     if let Some(progress) = &self.progress {
                         progress.reset();
-                        progress.set_length(100);
-                        progress.set_message(format!("REMOVING {}", id));
+                        progress.set_prefix(format!(
+                            "{} 📦  {} {:width$}",
+                            style(format!("[{}/{}]", idx + 1, id.len())).bold().dim(),
+                            &package.id,
+                            ' ',
+                            width = 100 - &package.id.len(),
+                        ));
                     }
                     let mut count = 0;
                     for file in &files {
@@ -75,7 +86,7 @@ impl Engine {
                     }
                     self.db.remove(&package.id.clone()).await?;
                     if let Some(progress) = &self.progress {
-                        progress.finish_with_message(format!("SUCCESS {}", id));
+                        progress.set_message(style("DONE").green().bright().to_string());
                         println!();
                     }
                 } else {
@@ -95,7 +106,7 @@ impl Engine {
                 let mut packages = Vec::<MetaInfo>::new();
                 for p in self.db.iter() {
                     if let Some(i) = self.repo.get(&p.id) {
-                        if i == p {
+                        if i != p {
                             packages.push(i.clone());
                         }
                     }
@@ -116,7 +127,23 @@ impl Engine {
         Ok(packages)
     }
 
-    pub async fn install(&mut self, packages: &Vec<MetaInfo>) -> Result<(), Error> {
+    pub fn get(&self, id: &str, mode: ListMode) -> Option<MetaInfo> {
+        let package = match mode {
+            ListMode::Installed => self.db.get(id),
+            ListMode::Remote => self.repo.get(id),
+            _ => None,
+        };
+        if let Some(package) = package {
+            return Some(package.clone());
+        }
+        None
+    }
+
+    pub async fn install(
+        &mut self,
+        packages: &Vec<MetaInfo>,
+        skip_integration: bool,
+    ) -> Result<(), Error> {
         let mut files_to_clean: Vec<String> = Vec::new();
 
         fs::create_dir_all(self.root.join(CACHE_PATH))?;
@@ -128,9 +155,10 @@ impl Engine {
             if let Some(progress) = &self.progress {
                 progress.reset();
                 progress.set_prefix(format!(
-                    "[{}/{}] {} {:width$}",
-                    idx + 1,
-                    packages.len(),
+                    "{} 📦  {} {:width$}",
+                    style(format!("[{}/{}]", idx + 1, packages.len()))
+                        .bold()
+                        .dim(),
                     &package.id,
                     ' ',
                     width = 100 - &package.id.len(),
@@ -146,11 +174,13 @@ impl Engine {
 
             if let Some(progress) = &self.progress {
                 progress.set_prefix(format!(
-                    "[{}/{}] {} {:<4}",
-                    idx + 1,
-                    packages.len(),
+                    "{} 📦  {} {:width$}",
+                    style(format!("[{}/{}]", idx + 1, packages.len()))
+                        .bold()
+                        .dim(),
                     &package.id,
-                    ' '
+                    ' ',
+                    width = 100 - &package.id.len(),
                 ));
                 progress.set_message("loading content...");
             }
@@ -189,13 +219,15 @@ impl Engine {
                 .arg(&self.root)
                 .spawn()?;
 
-            if !package.integration.is_empty() {
+            if !package.integration.is_empty() && !skip_integration {
                 if let Some(progress) = &self.progress {
                     progress.set_message("integration...");
                 }
                 Command::new("sh")
                     .arg("-c")
                     .arg(&package.integration)
+                    .stderr(Stdio::null())
+                    .stdout(Stdio::null())
                     .spawn()?;
             }
 
@@ -208,7 +240,7 @@ impl Engine {
             std::thread::sleep(Duration::from_millis(50));
 
             if let Some(progress) = &self.progress {
-                progress.set_message("finished");
+                progress.set_message(style("DONE").green().bright().to_string());
                 println!();
             }
         }

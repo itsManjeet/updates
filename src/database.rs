@@ -70,8 +70,6 @@ impl Database {
     }
 
     pub async fn remove(&mut self, id: &String) -> Result<(), Error> {
-        let path = self.path.join(Database::format(id));
-        println!("removing:{}", path.display());
         fs::remove_dir_all(self.path.join(Database::format(id)))?;
         Ok(())
     }

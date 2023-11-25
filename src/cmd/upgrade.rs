@@ -9,7 +9,7 @@ pub use swupd::engine::Error;
 use super::ask::ask;
 
 static LOOKING_GLASS: Emoji<'_, '_> = Emoji("🔍  ", "");
-static TICK: Emoji<'_, '_> = Emoji("✔️  ", "");
+static TICK: Emoji<'_, '_> = Emoji("✔️   ", "");
 static CLOUD: Emoji<'_, '_> = Emoji("☁️   ", "");
 static SPARKLE: Emoji<'_, '_> = Emoji("✨ ", ":-)");
 
@@ -54,7 +54,7 @@ pub async fn run(args: &ArgMatches, engine: &mut Engine) -> Result<(), Error> {
             }
         }
     }
-    engine.install(&packages).await?;
+    engine.install(&packages, false).await?;
     println!("{} Done in {}", SPARKLE, HumanDuration(started.elapsed()));
 
     Ok(())
