@@ -21,11 +21,13 @@ pub async fn run(args: &ArgMatches, engine: &mut Engine) -> Result<(), Error> {
 
     engine.sync().await?;
 
-    if !ask(&format!(
-        "{:?}\nDo you want to remove above packages [y/N]: ",
-        packages
-    )) {
-        return Ok(());
+    if !args.get_flag("yes") {
+        if !ask(&format!(
+            "{:?}\nDo you want to remove above packages [y/N]: ",
+            packages
+        )) {
+            return Ok(());
+        }
     }
     engine.remove(&packages).await
 }

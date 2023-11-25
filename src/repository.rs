@@ -1,6 +1,5 @@
 use futures_util::StreamExt;
 use indicatif::{HumanBytes, ProgressBar};
-use indicatif::{ProgressState, ProgressStyle};
 use std::cmp::min;
 use std::fs::rename;
 use std::io;

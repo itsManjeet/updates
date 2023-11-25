@@ -1,7 +1,6 @@
 use clap::{value_parser, Arg, ArgAction, Command};
 use console::{style, Emoji};
-use indicatif::{ProgressBar, ProgressState, ProgressStyle};
-use std::fmt::Write;
+use indicatif::{ProgressBar, ProgressStyle};
 use std::path::PathBuf;
 use swupd::engine::Engine;
 use thiserror::Error;
@@ -10,6 +9,7 @@ mod ask;
 mod install;
 mod remove;
 mod search;
+mod upgrade;
 
 static TRUCK: Emoji<'_, '_> = Emoji("🚚  ", "");
 
@@ -42,10 +42,18 @@ pub async fn run() -> Result<(), Error> {
                 .long("version")
                 .action(ArgAction::SetTrue),
         )
+        .arg(
+            Arg::new("yes")
+                .short('Y')
+                .long("Yes to all")
+                .global(true)
+                .action(ArgAction::SetTrue),
+        )
         .arg_required_else_help(true)
         .subcommand(install::cmd())
         .subcommand(remove::cmd())
         .subcommand(search::cmd())
+        .subcommand(upgrade::cmd())
         .get_matches();
 
     if matches.get_flag("version") {
@@ -74,6 +82,7 @@ pub async fn run() -> Result<(), Error> {
         Some(("install", args)) => install::run(args, &mut engine).await.map_err(Error::Swupd),
         Some(("remove", args)) => remove::run(args, &mut engine).await.map_err(Error::Swupd),
         Some(("search", args)) => search::run(args, &mut engine).await.map_err(Error::Swupd),
+        Some(("upgrade", args)) => upgrade::run(args, &mut engine).await.map_err(Error::Swupd),
         _ => unreachable!(),
     }
 }

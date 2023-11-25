@@ -1,11 +1,8 @@
 use crate::{database::Database, meta::MetaInfo, repository::Repository};
 
-use console::{style, Emoji};
 use indicatif::ProgressBar;
 use std::{collections::HashSet, fs, io, path::PathBuf, process::Command, time::Duration};
 use thiserror::Error;
-
-static CLOUD: Emoji<'_, '_> = Emoji("☁️   ", "");
 
 pub enum ListMode {
     Installed,

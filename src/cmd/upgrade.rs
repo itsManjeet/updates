@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use clap::{arg, value_parser, ArgMatches, Command};
+use clap::{ArgMatches, Command};
 use console::{style, Emoji};
 use indicatif::HumanDuration;
 use swupd::engine::Engine;
@@ -14,19 +14,10 @@ static CLOUD: Emoji<'_, '_> = Emoji("☁️   ", "");
 static SPARKLE: Emoji<'_, '_> = Emoji("✨ ", ":-)");
 
 pub fn cmd() -> Command {
-    Command::new("install")
-        .about("Install component into system")
-        .arg(arg!(<NAME> ... "component to install").value_parser(value_parser!(String)))
+    Command::new("upgrade").about("Upgrade system packages")
 }
 
 pub async fn run(args: &ArgMatches, engine: &mut Engine) -> Result<(), Error> {
-    let packages = args
-        .get_many::<String>("NAME")
-        .into_iter()
-        .flatten()
-        .map(String::clone)
-        .collect::<Vec<_>>();
-
     let started = Instant::now();
 
     println!(
@@ -37,15 +28,15 @@ pub async fn run(args: &ArgMatches, engine: &mut Engine) -> Result<(), Error> {
     engine.sync().await?;
 
     println!(
-        "{} {}Resolving packages...",
+        "{} {}Checking outdated packages...",
         style("[3/4]").bold().dim(),
         LOOKING_GLASS
     );
 
-    let packages = engine.resolve(&packages).await?;
+    let packages = engine.list(swupd::engine::ListMode::Outdated).await?;
     if packages.len() == 0 {
         println!(
-            "{} {}Packages already installed!",
+            "{} {}System is upto date!",
             style("[4/4]").bold().dim(),
             TICK
         );
