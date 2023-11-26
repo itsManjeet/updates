@@ -1,4 +1,10 @@
-use crate::{database::Database, meta::MetaInfo, repository::Repository};
+use crate::{
+    database::Database,
+    downloader,
+    element::{self, Element},
+    meta::MetaInfo,
+    repository::Repository,
+};
 use console::style;
 use indicatif::ProgressBar;
 use std::{
@@ -9,6 +15,7 @@ use std::{
     time::Duration,
 };
 use thiserror::Error;
+mod build;
 
 pub enum ListMode {
     Installed,
@@ -55,6 +62,10 @@ impl Engine {
         self.repo
             .refresh(&format!("{}/origin", self.server))
             .await?;
+        Ok(())
+    }
+
+    pub async fn build(&self, element: &Element) -> Result<(), Error> {
         Ok(())
     }
 
@@ -320,4 +331,10 @@ pub enum Error {
 
     #[error("Installation failed {0}")]
     InstallationFailed(String),
+
+    #[error("Element Error")]
+    ElementError(#[from] element::Error),
+
+    #[error("Downloader Error")]
+    DownloaderError(#[from] downloader::Error),
 }

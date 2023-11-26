@@ -2,10 +2,10 @@ use clap::{value_parser, Arg, ArgAction, Command};
 use console::{style, Emoji};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::PathBuf;
-use swupd::engine::Engine;
-use thiserror::Error;
+use swupd::engine::{self, Engine};
 
 mod ask;
+mod build;
 mod install;
 mod remove;
 mod search;
@@ -13,7 +13,7 @@ mod upgrade;
 
 static TRUCK: Emoji<'_, '_> = Emoji("🚚  ", "");
 
-pub async fn run() -> Result<(), Error> {
+pub async fn run() -> Result<(), engine::Error> {
     let matches = Command::new("swupd")
         .about("Software Management and updater daemon")
         .arg(
@@ -60,6 +60,7 @@ pub async fn run() -> Result<(), Error> {
         .subcommand(remove::cmd())
         .subcommand(search::cmd())
         .subcommand(upgrade::cmd())
+        .subcommand(build::cmd())
         .get_matches();
 
     if matches.get_flag("version") {
@@ -87,16 +88,11 @@ pub async fn run() -> Result<(), Error> {
     engine.load().await?;
 
     match matches.subcommand() {
-        Some(("install", args)) => install::run(args, &mut engine).await.map_err(Error::Swupd),
-        Some(("remove", args)) => remove::run(args, &mut engine).await.map_err(Error::Swupd),
-        Some(("search", args)) => search::run(args, &mut engine).await.map_err(Error::Swupd),
-        Some(("upgrade", args)) => upgrade::run(args, &mut engine).await.map_err(Error::Swupd),
+        Some(("install", args)) => install::run(args, &mut engine).await,
+        Some(("remove", args)) => remove::run(args, &mut engine).await,
+        Some(("search", args)) => search::run(args, &mut engine).await,
+        Some(("upgrade", args)) => upgrade::run(args, &mut engine).await,
+        Some(("build", args)) => build::run(args, &mut engine).await,
         _ => unreachable!(),
     }
-}
-
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("Swupd")]
-    Swupd(#[from] swupd::engine::Error),
 }
