@@ -120,5 +120,5 @@ pub fn update_callback(p: &AsyncProgress) {
     if scanned_metadata > 0 {
         message.push_str(&format!("\nScanning metadata: {}", scanned_metadata));
     }
-    println!("{}", message);
+    print!("\r{}", message);
 }
