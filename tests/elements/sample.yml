@@ -1,0 +1,7 @@
+id: sample
+version: 0.0.1
+about: Sample component
+
+config:
+  script: |
+    echo "%{id}-%{version}" > here

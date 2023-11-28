@@ -1,0 +1,6 @@
+id: neofetch
+version: 7.1.0
+about: System Information Tool
+
+sources:
+- https://github.com/dylanaraps/neofetch/archive/refs/tags/%{version}.tar.gz

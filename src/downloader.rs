@@ -22,10 +22,10 @@ pub async fn download(
 
         let tmpfile_path = PathBuf::from(tmpfile_path);
         let mut outfile = File::create(&tmpfile_path)?;
-        let total_size = response.content_length().ok_or(Error::InvalidUrl(
-            String::from(url),
-            String::from("failed to get content length"),
-        ))?;
+        let total_size = match response.content_length() {
+            Some(size) => size,
+            None => 99999,
+        };
 
         let mut stream = response.bytes_stream();
         let mut downloaded: u64 = 0;

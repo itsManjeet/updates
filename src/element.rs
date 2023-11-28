@@ -1,6 +1,7 @@
 use merge_struct::merge;
 use regex::{Captures, Regex};
 use serde::{Deserialize, Serialize};
+use std::hash::{Hash, Hasher};
 use std::{collections::HashMap, fs::File, path::PathBuf};
 use thiserror::Error;
 
@@ -23,7 +24,7 @@ pub struct Element {
 
     pub config: Option<HashMap<String, String>>,
     pub sources: Option<Vec<String>>,
-    pub environ: Option<Vec<String>>,
+    pub environ: Option<HashMap<String, String>>,
 
     pub split: Option<Vec<Split>>,
 
@@ -52,27 +53,45 @@ impl Element {
         Ok(element)
     }
 
-    pub fn resolve(&mut self, environ: &Vec<String>, variables: &HashMap<String, String>) {
-        let mut table = variables.clone();
-        if let Some(config) = &self.config {
-            table.extend(config.clone());
+    pub fn resolve(
+        &self,
+        environ: &HashMap<String, String>,
+        variables: &HashMap<String, String>,
+    ) -> Result<Element, Error> {
+        let mut config = variables.clone();
+        if let Some(c) = &self.config {
+            config.extend(c.clone());
+        }
+        if let Some(id) = &self.id {
+            config.insert(String::from("id"), id.clone());
+        }
+        if let Some(version) = &self.version {
+            config.insert(String::from("version"), version.clone());
         }
 
-        if let Some(env) = &mut self.environ {
-            env.into_iter().chain(environ.into_iter());
-        }
+        let serialized = serde_yaml::to_string(&self).unwrap();
 
         let re = Regex::new(r"\%\{([a-zA-Z_][0-9a-zA-Z_]*)\}").unwrap();
-        if let Some(config) = &self.config {
-            for (_, value) in config.iter() {
-                re.replace_all(&value, |caps: &Captures| {
-                    if variables.contains_key(&caps[1]) {
-                        return variables[&caps[1]].clone();
-                    }
-                    return String::from("");
-                });
+        let serialized = re.replace_all(&serialized, |caps: &Captures| {
+            if config.contains_key(&caps[1]) {
+                return config[&caps[1]].clone();
             }
+            return String::from("");
+        });
+
+        let mut element: Element = serde_yaml::from_str(&serialized).unwrap();
+        if let Some(e) = &mut element.environ {
+            e.extend(environ.clone());
         }
+
+        Ok(element)
+    }
+}
+
+impl Hash for Element {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let serialized = serde_yaml::to_string(&self).unwrap();
+        serialized.hash(state);
     }
 }
 
@@ -90,18 +109,33 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{collections::HashMap, path::PathBuf};
 
     use super::Element;
 
     #[test]
     fn test_open() {
-        let testfiles = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("elements");
+        let testfiles = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests");
 
-        let element = Element::open(&testfiles.join("components/acl.yml"), Some(&testfiles))
+        let element = Element::open(&testfiles.join("elements/sample.yml"), Some(&testfiles))
             .expect("failed to open element");
 
-        assert_eq!("acl", element.id.unwrap());
-        assert_eq!("0.0.2", element.version.unwrap());
+        assert_eq!("sample", element.id.unwrap());
+        assert_eq!("0.0.1", element.version.unwrap());
+    }
+
+    #[test]
+    fn test_resolve() {
+        let testfiles = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests");
+
+        let element = Element::open(&testfiles.join("elements/sample.yml"), Some(&testfiles))
+            .expect("failed to open element");
+
+        let environ: HashMap<String, String> = HashMap::new();
+        let variables: HashMap<String, String> = HashMap::new();
+
+        let element = element.resolve(&environ, &variables).unwrap();
+
+        assert_eq!("here is sample 0.0.1", element.config.unwrap()["script"]);
     }
 }
