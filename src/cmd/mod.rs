@@ -1,29 +1,11 @@
 use std::path::PathBuf;
 
 use clap::{value_parser, Arg, ArgAction, Command};
+use ostree::{gio, glib, Sysroot};
+use ostree::gio::Cancellable;
 use swupd::engine::{self, Engine};
 use thiserror::Error;
 
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("Upgrade")]
-    Upgrade(#[from] upgrade::Error),
-
-    #[error("check")]
-    Check(#[from] check::Error),
-
-    #[error("status")]
-    Status(#[from] status::Error),
-
-    #[error("unlock")]
-    Unlock(#[from] unlock::Error),
-
-    #[error("engine")]
-    Engine(#[from] engine::Error),
-
-    #[error("permission error {0}")]
-    PermissionError(String),
-}
 
 mod check;
 mod status;
@@ -43,7 +25,8 @@ pub async fn run() -> Result<(), Error> {
             Arg::new("sysroot")
                 .long("sysroot")
                 .global(true)
-                .help("OStree Sysroot")
+                .help("Ostree Sysroot")
+                .default_value("/")
                 .value_parser(value_parser!(PathBuf)),
         )
         .arg_required_else_help(true)
@@ -58,19 +41,59 @@ pub async fn run() -> Result<(), Error> {
         return Ok(());
     }
 
-    let engine = Engine::new(matches.get_one::<PathBuf>("sysroot"));
+    let sysroot = Sysroot::new(Some(&gio::File::for_path(matches.get_one::<PathBuf>("sysroot").unwrap())));
     if nix::unistd::getegid().as_raw() != 0 {
         return Err(Error::PermissionError(String::from(
             "need supper user access",
         )));
     }
-    Engine::setup_namespace()?;
+
+    sysroot.set_mount_namespace_in_use();
+    sysroot.load(Cancellable::NONE)?;
+
+    if !sysroot.try_lock()? {
+        return Err(Error::FailedTryLock);
+    }
+
+    sysroot.connect_journal_msg(|_, msg| {
+        println!("{}", msg);
+    });
+
+    let engine = Engine::new(sysroot, None)?;
+
+    match unsafe { syscalls::syscall!(syscalls::Sysno::unshare, 0x00020000) } {
+        Err(error) => return Err(Error::FailedSetupNamespace(error)),
+        Ok(_) => {}
+    };
+
 
     match matches.subcommand() {
-        Some(("upgrade", args)) => upgrade::run(args, &engine).await.map_err(Error::Upgrade),
-        Some(("check", args)) => check::run(args, &engine).await.map_err(Error::Check),
-        Some(("status", args)) => status::run(args, &engine).await.map_err(Error::Status),
+        Some(("upgrade", args)) => upgrade::run(args, &engine).await.map_err(Error::Engine),
+        Some(("check", args)) => check::run(args, &engine).await.map_err(Error::Engine),
+        Some(("status", args)) => status::run(args, &engine).await.map_err(Error::Engine),
         Some(("unlock", args)) => unlock::run(args, &engine).await.map_err(Error::Unlock),
         _ => unreachable!(),
     }
+}
+
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("unlock")]
+    Unlock(#[from] unlock::Error),
+
+    #[error("engine")]
+    Engine(#[from] engine::Error),
+
+    #[error("glib")]
+    GLib(#[from] glib::Error),
+
+    #[error("permission error {0}")]
+    PermissionError(String),
+
+    #[error("failed to lock sysroot")]
+    FailedTryLock,
+
+    #[error("failed to setup namespace {0}")]
+    FailedSetupNamespace(syscalls::Errno),
 }

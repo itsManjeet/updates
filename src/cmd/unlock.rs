@@ -20,7 +20,6 @@ pub fn cmd() -> Command {
 pub async fn run(_: &ArgMatches, engine: &Engine) -> Result<(), Error> {
     let cancellable = Cancellable::NONE;
 
-    engine.load(cancellable)?;
     if let Some(deployment) = engine.sysroot.booted_deployment() {
         if deployment.unlocked() != DeploymentUnlockedState::None {
             println!("safe mutable overlay already applied");

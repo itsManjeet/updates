@@ -53,8 +53,8 @@ pub fn update_callback(p: &AsyncProgress) {
             .unwrap();
         let metadata_fetched = p.variant("metadata-fetched").unwrap().get::<u32>().unwrap();
 
-        let start_time = p.variant("start-time").unwrap().get::<u64>().unwrap() as u128;
-        let current_time = Instant::now().elapsed().as_micros() as u128;
+        let start_time = p.variant("start-time").unwrap().get::<u64>().unwrap() as i128;
+        let current_time = Instant::now().elapsed().as_micros() as i128;
 
         if (current_time - start_time < 1_000_000) || bytes_transferred == 0 {
             bytes_sec = 0;
