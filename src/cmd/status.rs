@@ -2,7 +2,7 @@ use clap::{ArgMatches, Command};
 use ostree::{COMMIT_META_KEY_SOURCE_TITLE, COMMIT_META_KEY_VERSION, DeploymentUnlockedState};
 use ostree::glib::{VariantDict, VariantTy};
 use swupd::engine;
-use swupd::engine::{Engine, Error};
+use swupd::engine::{Engine, Error, format_timestamp};
 
 pub fn cmd() -> Command {
     Command::new("status")
@@ -53,15 +53,15 @@ pub async fn run(_: &ArgMatches, engine: &Engine) -> Result<(), Error> {
         if !status.is_empty() {
             println!("  status: {status}");
         }
-        println!("  ref: {}.{}", deployment.csum(), deployment.deployserial());
+        println!("  revision: {}.{}", deployment.csum(), deployment.deployserial());
 
         let repo = &engine.sysroot.repo();
         let ((base_refspec, (base_rev, base_timestamp)), extensions) = engine::parse_deployment(repo, &deployment)?;
 
-        println!("  base_refspec: {}.{}:{}", base_refspec, base_rev, base_timestamp);
+        println!("  base_refspec:   {}\n  revision:       {}\n  timestamp:      {}", base_refspec, truncate(&base_rev, 6), format_timestamp(base_timestamp));
         println!("  extensions: {}", &extensions.len());
         for (i, (ext, (rev, timestamp))) in extensions.iter().enumerate() {
-            println!("    {}. {}.{}:{}", i + 1, ext, rev, timestamp);
+            println!("    {}. refspec:   {}\n       revision:  {}\n       timestamp: {}", i + 1, ext, truncate(rev, 6), format_timestamp(timestamp.clone()));
         }
 
         match repo.load_variant(ostree::ObjectType::Commit, deployment.csum().as_str()) {
@@ -75,9 +75,6 @@ pub async fn run(_: &ArgMatches, engine: &Engine) -> Result<(), Error> {
                     println!("\tversion: {}", version.get::<String>().unwrap());
                 }
 
-                if let Some(ext_list) = commit_dict.lookup_value("rlxos.ext-list", Some(VariantTy::STRING_ARRAY)) {
-                    println!("\textensions list: {:?}", ext_list.get::<Vec<String>>().unwrap());
-                }
                 if let Some(source_title) = commit_dict.lookup_value(
                     COMMIT_META_KEY_SOURCE_TITLE.to_string().as_str(),
                     Some(VariantTy::STRING),
@@ -110,6 +107,7 @@ pub async fn run(_: &ArgMatches, engine: &Engine) -> Result<(), Error> {
                 Ok(refspec) => println!("  origin: {}", refspec),
             }
         }
+        println!();
     }
 
     Ok(())

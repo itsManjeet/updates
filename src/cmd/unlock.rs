@@ -1,17 +1,8 @@
 use clap::{ArgMatches, Command};
 
 use ostree::{gio::Cancellable, DeploymentUnlockedState};
-use swupd::engine::{self, Engine};
-use thiserror::Error;
+use swupd::engine::{Engine, Error};
 
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("GLib Error")]
-    GLibError(#[from] ostree::glib::Error),
-
-    #[error("Engine")]
-    Engine(#[from] engine::Error),
-}
 
 pub fn cmd() -> Command {
     Command::new("unlock").about("Add safe mutable overlay")

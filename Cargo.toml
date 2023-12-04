@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 backtrace = "0.3.69"
+chrono = "0.4.31"
 clap = "4.4.8"
 console = "0.15.7"
 humansize = "2.1.3"

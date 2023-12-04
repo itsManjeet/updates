@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 use std::{env, ptr};
+use chrono::prelude::DateTime;
+use chrono::Utc;
+use std::time::{Duration, UNIX_EPOCH};
 use ostree::{AsyncProgress, Deployment, ffi, gio, glib, MutableTree, ObjectType, Repo, RepoFile, RepoPullFlags, Sysroot, SysrootSimpleWriteDeploymentFlags};
 use ostree::gio::Cancellable;
-use ostree::glib::{Cast, IsA, KeyFile, ToVariant, VariantDict, VariantTy};
+use ostree::glib::{Cast, IsA, KeyFile, ToVariant, Variant, VariantDict, VariantTy};
 use ostree::glib::translate::{from_glib_full, ToGlibPtr};
 use thiserror::Error;
 
@@ -12,6 +15,15 @@ pub struct Engine {
     osname: String,
     deployment: Deployment,
     origin: KeyFile,
+}
+
+pub struct PullOpts {
+    pub dry_run: bool,
+    pub remote: Option<String>,
+    pub base_refspec: Option<String>,
+    pub include: Vec<String>,
+    pub exclude: Vec<String>,
+    pub reset: bool,
 }
 
 impl Engine {
@@ -95,31 +107,28 @@ impl Engine {
     }
 
 
-    pub async fn pull(&self, dry_run: bool, disable_ext: bool, remote: Option<&str>, add_ext: Option<Vec<&String>>, remove_ext: Option<Vec<&String>>, progress: Option<&AsyncProgress>, cancellable: Option<&Cancellable>) -> Result<UpdateResult, Error> {
+    pub async fn pull(&self, pull_opts: &PullOpts, progress: Option<&AsyncProgress>, cancellable: Option<&Cancellable>) -> Result<UpdateResult, Error> {
         let repo = self.sysroot.repo();
 
-        let remote = match remote {
+        let remote = match &pull_opts.remote {
             Some(remote) => remote.to_string(),
             None => self.osname.clone()
         };
 
 
         let ((base_refspec, (base_rev, _)), mut extensions) = parse_deployment(&repo, &self.deployment)?;
-        if disable_ext {
+        if pull_opts.reset {
             extensions.clear();
         }
 
-        if let Some(extra_ext) = add_ext {
-            for ext in extra_ext {
-                extensions.insert(ext.to_string(), (String::from(""), 0));
-            }
+        for ext in &pull_opts.include {
+            extensions.insert(ext.to_string(), (String::from(""), 0));
         }
 
-        if let Some(remove_ext) = remove_ext {
-            remove_ext.into_iter().for_each(|key| {
-                extensions.remove(key);
-            });
-        }
+        pull_opts.exclude.clone().into_iter().for_each(|key| {
+            extensions.remove(&key);
+        });
+
 
         let mut refs: Vec<&str> = Vec::new();
         refs.push(base_refspec.as_str());
@@ -131,7 +140,7 @@ impl Engine {
         let options = VariantDict::new(None);
 
         let mut pull_flags = RepoPullFlags::NONE;
-        if dry_run { pull_flags |= RepoPullFlags::COMMIT_ONLY; }
+        if pull_opts.dry_run { pull_flags |= RepoPullFlags::COMMIT_ONLY; }
 
         options.insert("flags", &(pull_flags.bits() as i32));
         options.insert("refs", &&refs[..]);
@@ -177,6 +186,31 @@ impl Engine {
 
         Ok(UpdateResult::UpdatesAvailable(update_info))
     }
+
+    pub fn list(&self, remote: Option<&String>, cancellable: Option<&Cancellable>) -> Result<Vec<String>, Error> {
+        let repo = self.sysroot.repo();
+
+        let remote = match remote {
+            Some(remote) => remote.clone(),
+            None => {
+                let remotes = repo.remote_list();
+                if remotes.is_empty() {
+                    return Err(Error::NoRemoteFound);
+                }
+                remotes.first().unwrap().to_string()
+            }
+        };
+
+        let (summary_bytes, _) = repo.remote_fetch_summary(&remote, cancellable)?;
+        let summary = Variant::from_bytes_with_type(&summary_bytes, VariantTy::new("(a(s(taya{sv}))a{sv})").unwrap());
+        let ref_map = summary.child_value(0);
+        let mut refs: Vec<String> = Vec::new();
+        for r in ref_map.iter() {
+            refs.push(r.child_get::<String>(0).clone());
+        }
+
+        Ok(refs)
+    }
 }
 
 pub struct UpdateInfo {
@@ -202,11 +236,9 @@ pub fn parse_deployment(repo: &Repo, deployment: &Deployment) -> Result<((String
         Err(_) => String::from("stable"),
     };
 
+
     let mut timestamps: HashMap<String, (String, u64)> = HashMap::new();
-    let rev = match repo.resolve_rev(&refspec, false)? {
-        Some(rev) => rev,
-        None => return Err(Error::NoRevisionForRefSpec(refspec.to_string())),
-    };
+    let rev = deployment.csum();
 
     let commit = repo.load_variant(ObjectType::Commit, rev.as_str())?;
     let commit_metadata = VariantDict::new(Some(&commit.child_value(0)));
@@ -291,6 +323,12 @@ pub fn commit_metadata_for_bootable(root: &impl IsA<gio::File>, options: &Varian
     }
 }
 
+pub fn format_timestamp(timestamp: u64) -> String {
+    let d = UNIX_EPOCH + Duration::from_secs(timestamp);
+    let datetime = DateTime::<Utc>::from(d);
+    datetime.format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("glib")]
@@ -316,4 +354,16 @@ pub enum Error {
 
     #[error("failed to prepare transaction")]
     FailedPrepareTransaction,
+
+    #[error("permission error {0}")]
+    PermissionError(String),
+
+    #[error("failed to lock sysroot")]
+    FailedTryLock,
+
+    #[error("failed to setup namespace {0}")]
+    FailedSetupNamespace(syscalls::Errno),
+
+    #[error("no remote found")]
+    NoRemoteFound,
 }

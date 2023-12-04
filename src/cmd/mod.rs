@@ -1,16 +1,14 @@
 use std::path::PathBuf;
 
 use clap::{value_parser, Arg, ArgAction, Command};
-use ostree::{gio, glib, Sysroot};
+use ostree::{gio, Sysroot};
 use ostree::gio::Cancellable;
-use swupd::engine::{self, Engine};
-use thiserror::Error;
+use swupd::engine::{Error, Engine};
 
-
-mod check;
 mod status;
 mod unlock;
-mod upgrade;
+mod update;
+mod list;
 
 pub async fn run() -> Result<(), Error> {
     let matches = Command::new("swupd")
@@ -29,11 +27,18 @@ pub async fn run() -> Result<(), Error> {
                 .default_value("/")
                 .value_parser(value_parser!(PathBuf)),
         )
+        .arg(Arg::new("remote")
+            .long("remote")
+            .help("Specify remote or url")
+            .action(ArgAction::Set)
+            .global(true)
+            .required(false)
+            .value_parser(value_parser!(String)))
         .arg_required_else_help(true)
-        .subcommand(upgrade::cmd())
+        .subcommand(update::cmd())
         .subcommand(status::cmd())
-        .subcommand(check::cmd())
         .subcommand(unlock::cmd())
+        .subcommand(list::cmd())
         .get_matches();
 
     if matches.get_flag("version") {
@@ -68,32 +73,10 @@ pub async fn run() -> Result<(), Error> {
 
 
     match matches.subcommand() {
-        Some(("upgrade", args)) => upgrade::run(args, &engine).await.map_err(Error::Engine),
-        Some(("check", args)) => check::run(args, &engine).await.map_err(Error::Engine),
-        Some(("status", args)) => status::run(args, &engine).await.map_err(Error::Engine),
-        Some(("unlock", args)) => unlock::run(args, &engine).await.map_err(Error::Unlock),
+        Some(("update", args)) => update::run(args, &engine).await,
+        Some(("status", args)) => status::run(args, &engine).await,
+        Some(("unlock", args)) => unlock::run(args, &engine).await,
+        Some(("list", args)) => list::run(args, &engine).await,
         _ => unreachable!(),
     }
-}
-
-
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("unlock")]
-    Unlock(#[from] unlock::Error),
-
-    #[error("engine")]
-    Engine(#[from] engine::Error),
-
-    #[error("glib")]
-    GLib(#[from] glib::Error),
-
-    #[error("permission error {0}")]
-    PermissionError(String),
-
-    #[error("failed to lock sysroot")]
-    FailedTryLock,
-
-    #[error("failed to setup namespace {0}")]
-    FailedSetupNamespace(syscalls::Errno),
 }

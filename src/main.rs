@@ -1,4 +1,5 @@
 use std::error::Error;
+use swupd::engine;
 
 mod cmd;
 
@@ -10,13 +11,13 @@ async fn main() {
     }
 }
 
-fn report_error(error: cmd::Error) {
+fn report_error(error: engine::Error) {
     let sources = sources(&error);
     let error = sources.join(": ");
     eprintln!("ERROR: {error}");
 }
 
-fn sources(error: &cmd::Error) -> Vec<String> {
+fn sources(error: &engine::Error) -> Vec<String> {
     let mut sources = vec![error.to_string()];
     let mut source = error.source();
     while let Some(error) = source.take() {
