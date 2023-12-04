@@ -15,7 +15,6 @@ use std::{
     time::Duration,
 };
 use thiserror::Error;
-pub mod builder;
 
 pub enum ListMode {
     Installed,
@@ -336,10 +335,4 @@ pub enum Error {
 
     #[error("YAML Parsing failed")]
     YamlParsingFailed(#[from] serde_yaml::Error),
-
-    #[error("Compilation failed")]
-    CompilationFailed,
-
-    #[error("Packaging failed")]
-    PackagingFailed,
 }

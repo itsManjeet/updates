@@ -1,10 +1,10 @@
-use indicatif::ProgressBar;
 use std::io;
 use std::path::PathBuf;
 use thiserror::Error;
 
 use crate::downloader::{self, download};
 use crate::meta::MetaInfo;
+use crate::progress::Progress;
 
 #[derive(Debug)]
 pub struct Repository {
@@ -51,9 +51,9 @@ impl Repository {
         &self,
         url: &str,
         filepath: &PathBuf,
-        progress: Option<&ProgressBar>,
+        progres: Option<Progress>,
     ) -> Result<(), Error> {
-        download(url, filepath, progress)
+        download(url, filepath, progres)
             .await
             .map_err(Error::DownloadFailed)
     }

@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use swupd::engine::{self, Engine};
 
 mod ask;
-mod build;
 mod install;
 mod remove;
 mod search;
@@ -60,7 +59,6 @@ pub async fn run() -> Result<(), engine::Error> {
         .subcommand(remove::cmd())
         .subcommand(search::cmd())
         .subcommand(upgrade::cmd())
-        .subcommand(build::cmd())
         .get_matches();
 
     if matches.get_flag("version") {
@@ -92,7 +90,6 @@ pub async fn run() -> Result<(), engine::Error> {
         Some(("remove", args)) => remove::run(args, &mut engine).await,
         Some(("search", args)) => search::run(args, &mut engine).await,
         Some(("upgrade", args)) => upgrade::run(args, &mut engine).await,
-        Some(("build", args)) => build::run(args, &mut engine).await,
         _ => unreachable!(),
     }
 }

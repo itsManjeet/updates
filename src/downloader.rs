@@ -1,5 +1,5 @@
+use crate::progress::Progress;
 use futures_util::StreamExt;
-use indicatif::{HumanBytes, ProgressBar};
 use std::cmp::min;
 use std::fs::rename;
 use std::fs::File;
@@ -11,11 +11,14 @@ use thiserror::Error;
 pub async fn download(
     url: &str,
     filepath: &PathBuf,
-    progress: Option<&ProgressBar>,
+    progress: Option<&Progress>,
 ) -> Result<(), Error> {
     let client = reqwest::Client::new();
     let response = client.get(url).send().await?;
 
+    if let Some(progress) = progress {
+        progress.process(format!("Downloading {}", url));
+    }
     if response.status().is_success() {
         let mut tmpfile_path = filepath.display().to_string();
         tmpfile_path.push_str(".tmp");
@@ -36,12 +39,7 @@ pub async fn download(
             let new = min(downloaded + (chunk.len() as u64), total_size);
             downloaded = new;
             if let Some(progress) = progress {
-                progress.inc(1);
-                progress.set_message(format!(
-                    "[{}/{}]",
-                    HumanBytes(downloaded),
-                    HumanBytes(total_size)
-                ));
+                progress.update(&format!("downloaded {}/{}", downloaded, total_size));
             }
         }
 
