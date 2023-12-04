@@ -56,12 +56,12 @@ pub async fn run(_: &ArgMatches, engine: &Engine) -> Result<(), Error> {
         println!("  ref: {}.{}", deployment.csum(), deployment.deployserial());
 
         let repo = &engine.sysroot.repo();
-        let ((base_refspec, base_timestamp), extensions) = engine::parse_deployment(repo, &deployment)?;
+        let ((base_refspec, (base_rev, base_timestamp)), extensions) = engine::parse_deployment(repo, &deployment)?;
 
-        println!("  base_refspec: {}:{}", base_refspec, base_timestamp);
+        println!("  base_refspec: {}.{}:{}", base_refspec, base_rev, base_timestamp);
         println!("  extensions: {}", &extensions.len());
-        for (i, (ext, timestamp)) in extensions.iter().enumerate() {
-            println!("    {}. {}:{}", i + 1, ext, timestamp);
+        for (i, (ext, (rev, timestamp))) in extensions.iter().enumerate() {
+            println!("    {}. {}.{}:{}", i + 1, ext, rev, timestamp);
         }
 
         match repo.load_variant(ostree::ObjectType::Commit, deployment.csum().as_str()) {

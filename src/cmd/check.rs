@@ -13,7 +13,7 @@ pub async fn run(_: &ArgMatches, engine: &Engine) -> Result<(), Error> {
     let progress = AsyncProgress::new();
     progress.connect_changed(swupd::progress::update_callback);
 
-    let result = engine.pull(true, false, None, None, Some(&progress), cancellable).await?;
+    let result = engine.pull(true, false, None, None, None, Some(&progress), cancellable).await?;
     match result {
         UpdateResult::NoUpdates => println!("System is upto date"),
         UpdateResult::UpdatesAvailable(update_info) => {

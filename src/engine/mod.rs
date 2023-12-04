@@ -39,29 +39,26 @@ impl Engine {
         Ok(Engine { sysroot, osname, deployment, origin })
     }
 
-    pub async fn deploy(&self, base_refspec: &str, extensions: Vec<&str>, cancellable: Option<&Cancellable>) -> Result<(), Error> {
+    pub async fn deploy(&self, update_info: &UpdateInfo, cancellable: Option<&Cancellable>) -> Result<(), Error> {
         let repo = self.sysroot.repo();
         repo.is_writable()?;
 
         let refspec = self.origin.string("origin", "refspec")?;
         let rev: String;
         let origin: KeyFile;
-        if !(refspec == base_refspec && extensions.is_empty()) {
+        if !(refspec.as_str() == &update_info.refspec && update_info.extensions.is_empty()) {
             let options = VariantDict::new(None);
             options.insert("rlxos.merged", &true);
-
-            let base_rev = repo.resolve_rev(base_refspec, false)?.unwrap().to_string();
-            options.insert("rlxos.base-checksum", &base_rev);
+            options.insert("rlxos.base-checksum", &update_info.rev);
 
             repo.prepare_transaction(cancellable)?;
-            let mutable_tree = MutableTree::from_commit(&repo, &base_rev)?;
+            let mutable_tree = MutableTree::from_commit(&repo, &update_info.rev)?;
 
             let mut ext_list: Vec<&str> = Vec::new();
-            for ext in extensions {
-                ext_list.push(ext);
-                let ext_rev = repo.resolve_rev(base_refspec, false)?.unwrap();
-                options.insert(&format!("rlxos.ext-checksum-{}", ext.replace("/", "-")), &ext_rev.as_str());
-                let (object_to_commit, _) = repo.read_commit(ext, cancellable)?;
+            for (ext_ref, ext_rev) in &update_info.extensions {
+                ext_list.push(ext_ref);
+                options.insert(&format!("rlxos.ext-checksum-{}", ext_ref.replace("/", "-")), ext_rev);
+                let (object_to_commit, _) = repo.read_commit(ext_ref, cancellable)?;
                 repo.write_directory_to_mtree(&object_to_commit, &mutable_tree, None, cancellable)?;
             }
             options.insert("rlxos.ext-list", &&ext_list[..]);
@@ -80,11 +77,9 @@ impl Engine {
 
             rev = repo.resolve_rev(&deployment_refspec, false)?.unwrap().to_string();
             origin = self.sysroot.origin_new_from_refspec(&deployment_refspec);
-            println!("refspec: {}", &deployment_refspec);
         } else {
             rev = repo.resolve_rev(&refspec, false)?.unwrap().to_string();
             origin = self.sysroot.origin_new_from_refspec(&refspec);
-            println!("refspec: {}", &refspec);
         }
 
         let opts = ostree::SysrootDeployTreeOpts {
@@ -100,7 +95,7 @@ impl Engine {
     }
 
 
-    pub async fn pull(&self, dry_run: bool, disable_ext: bool, remote: Option<&str>, extra_ext: Option<Vec<&str>>, progress: Option<&AsyncProgress>, cancellable: Option<&Cancellable>) -> Result<UpdateResult, Error> {
+    pub async fn pull(&self, dry_run: bool, disable_ext: bool, remote: Option<&str>, add_ext: Option<Vec<&String>>, remove_ext: Option<Vec<&String>>, progress: Option<&AsyncProgress>, cancellable: Option<&Cancellable>) -> Result<UpdateResult, Error> {
         let repo = self.sysroot.repo();
 
         let remote = match remote {
@@ -109,15 +104,21 @@ impl Engine {
         };
 
 
-        let ((base_refspec, base_timestamp), mut extensions) = parse_deployment(&repo, &self.deployment)?;
+        let ((base_refspec, (base_rev, _)), mut extensions) = parse_deployment(&repo, &self.deployment)?;
         if disable_ext {
             extensions.clear();
         }
 
-        if let Some(extra_ext) = extra_ext {
+        if let Some(extra_ext) = add_ext {
             for ext in extra_ext {
-                extensions.insert(ext.to_string(), 0);
+                extensions.insert(ext.to_string(), (String::from(""), 0));
             }
+        }
+
+        if let Some(remove_ext) = remove_ext {
+            remove_ext.into_iter().for_each(|key| {
+                extensions.remove(key);
+            });
         }
 
         let mut refs: Vec<&str> = Vec::new();
@@ -140,22 +141,24 @@ impl Engine {
             progress.finish();
         }
 
-        let base_new_timestamp = get_timestamp_of_ref(&repo, &base_refspec)?;
+        let (base_new_rev, _) = get_rev_timestamp_of_ref(&repo, &base_refspec)?;
         let mut changelog = String::new();
-        let core_updated = match base_new_timestamp == base_timestamp {
+
+        let core_updated = match base_rev != base_new_rev {
             true => {
-                changelog.push_str(&gen_changelog(&repo, &base_refspec)?);
+                changelog.push_str(&gen_changelog(&repo, &base_refspec, &base_rev)?);
                 true
             }
             false => false,
         };
 
-        let mut updated_ext: Vec<String> = Vec::new();
-        for (ext_refspec, timestamp) in extensions.iter() {
-            let new_timestamp = get_timestamp_of_ref(&repo, &ext_refspec)?;
-            if &new_timestamp != timestamp {
-                changelog.push_str(&gen_changelog(&repo, &ext_refspec)?);
-                updated_ext.push(ext_refspec.clone());
+
+        let mut updated_ext: Vec<(String, String)> = Vec::new();
+        for (ext_refspec, (rev, _)) in extensions.iter() {
+            let (new_rev, _) = get_rev_timestamp_of_ref(&repo, &ext_refspec)?;
+            if rev != &new_rev {
+                changelog.push_str(&gen_changelog(&repo, &ext_refspec, &rev)?);
+                updated_ext.push((ext_refspec.clone(), new_rev.clone()));
             }
         }
 
@@ -165,6 +168,7 @@ impl Engine {
 
         let update_info = UpdateInfo {
             refspec: base_refspec,
+            rev: base_new_rev,
             core: core_updated,
             extensions: updated_ext,
             changelog,
@@ -177,8 +181,9 @@ impl Engine {
 
 pub struct UpdateInfo {
     pub refspec: String,
+    pub rev: String,
     pub core: bool,
-    pub extensions: Vec<String>,
+    pub extensions: Vec<(String, String)>,
     pub changelog: String,
 }
 
@@ -189,7 +194,7 @@ pub enum UpdateResult {
 }
 
 
-pub fn parse_deployment(repo: &Repo, deployment: &Deployment) -> Result<((String, u64), HashMap<String, u64>), Error> {
+pub fn parse_deployment(repo: &Repo, deployment: &Deployment) -> Result<((String, (String, u64)), HashMap<String, (String, u64)>), Error> {
     let origin = deployment.origin().unwrap();
     let refspec = origin.string("origin", "refspec")?;
     let channel = match origin.string("origin", "channel") {
@@ -197,7 +202,7 @@ pub fn parse_deployment(repo: &Repo, deployment: &Deployment) -> Result<((String
         Err(_) => String::from("stable"),
     };
 
-    let mut timestamps: HashMap<String, u64> = HashMap::new();
+    let mut timestamps: HashMap<String, (String, u64)> = HashMap::new();
     let rev = match repo.resolve_rev(&refspec, false)? {
         Some(rev) => rev,
         None => return Err(Error::NoRevisionForRefSpec(refspec.to_string())),
@@ -213,7 +218,7 @@ pub fn parse_deployment(repo: &Repo, deployment: &Deployment) -> Result<((String
 
     if !merged {
         let timestamp = ostree::commit_get_timestamp(&commit);
-        return Ok(((refspec.to_string(), timestamp), timestamps));
+        return Ok(((refspec.to_string(), (rev.to_string(), timestamp)), timestamps));
     }
 
     let base_checksum = match commit_metadata.lookup_value("rlxos.base-checksum", Some(&VariantTy::STRING)) {
@@ -230,7 +235,6 @@ pub fn parse_deployment(repo: &Repo, deployment: &Deployment) -> Result<((String
     };
 
     if let Some(ext_list) = extensions_list {
-        println!("ext list: {:?}", &ext_list);
         for ext in ext_list.iter() {
             let ext_checksum = match commit_metadata.lookup_value(&format!("rlxos.ext-checksum-{}", &ext.replace("/", "-")), Some(&VariantTy::STRING)) {
                 Some(ext_checksum) => ext_checksum.get::<String>().unwrap(),
@@ -238,26 +242,26 @@ pub fn parse_deployment(repo: &Repo, deployment: &Deployment) -> Result<((String
             };
             let ext_commit = repo.load_variant(ObjectType::Commit, ext_checksum.as_str())?;
             let ext_timestamp = ostree::commit_get_timestamp(&ext_commit);
-            timestamps.insert(ext.clone(), ext_timestamp);
+            timestamps.insert(ext.clone(), (ext_checksum, ext_timestamp));
         }
     }
 
 
-    Ok(((format!("{}/os/{}", env::consts::ARCH, channel), base_checksum_timestamp), timestamps))
+    Ok(((format!("{}/os/{}", env::consts::ARCH, channel), (base_checksum, base_checksum_timestamp)), timestamps))
 }
 
 
-pub fn get_timestamp_of_ref(repo: &Repo, refspec: &str) -> Result<u64, Error> {
+pub fn get_rev_timestamp_of_ref(repo: &Repo, refspec: &str) -> Result<(String, u64), Error> {
     let rev = match repo.resolve_rev(refspec, false)? {
         Some(rev) => rev,
         None => return Err(Error::NoRevisionForRefSpec(refspec.to_string())),
     };
 
     let commit = repo.load_variant(ObjectType::Commit, rev.as_str())?;
-    Ok(ostree::commit_get_timestamp(&commit))
+    Ok((rev.to_string(), ostree::commit_get_timestamp(&commit)))
 }
 
-pub fn gen_changelog(repo: &Repo, refspec: &str) -> Result<String, Error> {
+pub fn gen_changelog(repo: &Repo, refspec: &str, old_rev: &str) -> Result<String, Error> {
     let rev = match repo.resolve_rev(refspec, false)? {
         Some(rev) => rev,
         None => return Err(Error::NoRevisionForRefSpec(refspec.to_string())),
@@ -274,7 +278,7 @@ pub fn gen_changelog(repo: &Repo, refspec: &str) -> Result<String, Error> {
         None => String::from(""),
     };
 
-    Ok(format!("{}: {}\n{}", refspec, subject, body))
+    Ok(format!("{}: {}\n{}\nrev: {} -> {}\n", refspec, subject, body, old_rev, &rev))
 }
 
 pub fn commit_metadata_for_bootable(root: &impl IsA<gio::File>, options: &VariantDict, cancellable: Option<&impl IsA<Cancellable>>) -> Result<(), glib::Error> {
