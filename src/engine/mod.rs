@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::{env, ptr};
 use chrono::prelude::DateTime;
 use chrono::Utc;
@@ -116,31 +115,40 @@ impl Engine {
         };
 
 
-        let ((base_refspec, (base_rev, _)), mut extensions) = parse_deployment(&repo, &self.deployment)?;
+        let (base_deployment, mut extensions) = parse_deployment(&repo, &self.deployment)?;
         if pull_opts.reset {
             extensions.clear();
         }
 
         for ext in &pull_opts.include {
-            extensions.insert(ext.to_string(), (String::from(""), 0));
+            if !extensions.iter().any(|item| &item.refspec != ext) {
+                extensions.push(DeployInfo {
+                    remote: None,
+                    refspec: ext.to_string(),
+                    revision: String::from(""),
+                    timestamp: 0,
+                })
+            }
         }
 
         pull_opts.exclude.clone().into_iter().for_each(|key| {
-            extensions.remove(&key);
+            extensions.retain(|d| { d.refspec != key });
         });
 
 
         let mut refs: Vec<&str> = Vec::new();
-        refs.push(base_refspec.as_str());
+        refs.push(&base_deployment.refspec);
 
-        for (r, _) in extensions.iter() {
-            refs.push(r.as_str());
+        for info in extensions.iter() {
+            refs.push(&info.refspec);
         }
 
         let options = VariantDict::new(None);
 
         let mut pull_flags = RepoPullFlags::NONE;
         if pull_opts.dry_run { pull_flags |= RepoPullFlags::COMMIT_ONLY; }
+
+        println!("checking refs: {}", refs.join(" "));
 
         options.insert("flags", &(pull_flags.bits() as i32));
         options.insert("refs", &&refs[..]);
@@ -150,12 +158,12 @@ impl Engine {
             progress.finish();
         }
 
-        let (base_new_rev, _) = get_rev_timestamp_of_ref(&repo, &base_refspec)?;
+        let (base_new_rev, _) = get_rev_timestamp_of_ref(&repo, &base_deployment.refspec)?;
         let mut changelog = String::new();
 
-        let core_updated = match base_rev != base_new_rev {
+        let core_updated = match base_deployment.revision != base_new_rev {
             true => {
-                changelog.push_str(&gen_changelog(&repo, &base_refspec, &base_rev)?);
+                changelog.push_str(&gen_changelog(&repo, &base_deployment.refspec, &base_deployment.revision)?);
                 true
             }
             false => false,
@@ -163,11 +171,11 @@ impl Engine {
 
 
         let mut updated_ext: Vec<(String, String)> = Vec::new();
-        for (ext_refspec, (rev, _)) in extensions.iter() {
-            let (new_rev, _) = get_rev_timestamp_of_ref(&repo, &ext_refspec)?;
-            if rev != &new_rev {
-                changelog.push_str(&gen_changelog(&repo, &ext_refspec, &rev)?);
-                updated_ext.push((ext_refspec.clone(), new_rev.clone()));
+        for ext_info in extensions.iter() {
+            let (new_rev, _) = get_rev_timestamp_of_ref(&repo, &ext_info.refspec)?;
+            if &ext_info.revision != &new_rev {
+                changelog.push_str(&gen_changelog(&repo, &ext_info.refspec, &ext_info.revision)?);
+                updated_ext.push((ext_info.refspec.clone(), new_rev.clone()));
             }
         }
 
@@ -176,7 +184,7 @@ impl Engine {
         }
 
         let update_info = UpdateInfo {
-            refspec: base_refspec,
+            refspec: base_deployment.refspec,
             rev: base_new_rev,
             core: core_updated,
             extensions: updated_ext,
@@ -227,8 +235,15 @@ pub enum UpdateResult {
     UpdatesAvailable(UpdateInfo),
 }
 
+pub struct DeployInfo {
+    pub remote: Option<String>,
+    pub refspec: String,
+    pub timestamp: u64,
+    pub revision: String,
+}
 
-pub fn parse_deployment(repo: &Repo, deployment: &Deployment) -> Result<((String, (String, u64)), HashMap<String, (String, u64)>), Error> {
+
+pub fn parse_deployment(repo: &Repo, deployment: &Deployment) -> Result<(DeployInfo, Vec<DeployInfo>), Error> {
     let origin = deployment.origin().unwrap();
     let refspec = origin.string("origin", "refspec")?;
     let channel = match origin.string("origin", "channel") {
@@ -236,8 +251,6 @@ pub fn parse_deployment(repo: &Repo, deployment: &Deployment) -> Result<((String
         Err(_) => String::from("stable"),
     };
 
-
-    let mut timestamps: HashMap<String, (String, u64)> = HashMap::new();
     let rev = deployment.csum();
 
     let commit = repo.load_variant(ObjectType::Commit, rev.as_str())?;
@@ -250,7 +263,13 @@ pub fn parse_deployment(repo: &Repo, deployment: &Deployment) -> Result<((String
 
     if !merged {
         let timestamp = ostree::commit_get_timestamp(&commit);
-        return Ok(((refspec.to_string(), (rev.to_string(), timestamp)), timestamps));
+        let (remote, refspec) = ostree::parse_refspec(&refspec)?;
+        return Ok((DeployInfo {
+            remote: remote.and_then(|s| Some(s.to_string())),
+            refspec: refspec.to_string(),
+            timestamp,
+            revision: rev.to_string(),
+        }, Vec::new()));
     }
 
     let base_checksum = match commit_metadata.lookup_value("rlxos.base-checksum", Some(&VariantTy::STRING)) {
@@ -266,6 +285,7 @@ pub fn parse_deployment(repo: &Repo, deployment: &Deployment) -> Result<((String
         None => None,
     };
 
+    let mut extensions: Vec<DeployInfo> = Vec::new();
     if let Some(ext_list) = extensions_list {
         for ext in ext_list.iter() {
             let ext_checksum = match commit_metadata.lookup_value(&format!("rlxos.ext-checksum-{}", &ext.replace("/", "-")), Some(&VariantTy::STRING)) {
@@ -274,12 +294,21 @@ pub fn parse_deployment(repo: &Repo, deployment: &Deployment) -> Result<((String
             };
             let ext_commit = repo.load_variant(ObjectType::Commit, ext_checksum.as_str())?;
             let ext_timestamp = ostree::commit_get_timestamp(&ext_commit);
-            timestamps.insert(ext.clone(), (ext_checksum, ext_timestamp));
+            extensions.push(DeployInfo {
+                remote: None,
+                refspec: ext.clone(),
+                revision: ext_checksum,
+                timestamp: ext_timestamp,
+            });
         }
     }
 
-
-    Ok(((format!("{}/os/{}", env::consts::ARCH, channel), (base_checksum, base_checksum_timestamp)), timestamps))
+    Ok((DeployInfo {
+        remote: None,
+        refspec: format!("{}/os/{}", env::consts::ARCH, channel),
+        revision: base_checksum,
+        timestamp: base_checksum_timestamp,
+    }, extensions))
 }
 
 

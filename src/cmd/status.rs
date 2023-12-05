@@ -56,12 +56,12 @@ pub async fn run(_: &ArgMatches, engine: &Engine) -> Result<(), Error> {
         println!("  revision: {}.{}", deployment.csum(), deployment.deployserial());
 
         let repo = &engine.sysroot.repo();
-        let ((base_refspec, (base_rev, base_timestamp)), extensions) = engine::parse_deployment(repo, &deployment)?;
+        let (base_deployment, extensions) = engine::parse_deployment(repo, &deployment)?;
 
-        println!("  base_refspec:   {}\n  revision:       {}\n  timestamp:      {}", base_refspec, truncate(&base_rev, 6), format_timestamp(base_timestamp));
+        println!("  base_refspec:   {}\n  revision:       {}\n  timestamp:      {}", base_deployment.refspec, truncate(&base_deployment.revision, 6), format_timestamp(base_deployment.timestamp));
         println!("  extensions: {}", &extensions.len());
-        for (i, (ext, (rev, timestamp))) in extensions.iter().enumerate() {
-            println!("    {}. refspec:   {}\n       revision:  {}\n       timestamp: {}", i + 1, ext, truncate(rev, 6), format_timestamp(timestamp.clone()));
+        for (i, ext_info) in extensions.iter().enumerate() {
+            println!("    {}. refspec:   {}\n       revision:  {}\n       timestamp: {}", i + 1, ext_info.refspec, truncate(&ext_info.revision, 6), format_timestamp(ext_info.timestamp.clone()));
         }
 
         match repo.load_variant(ostree::ObjectType::Commit, deployment.csum().as_str()) {
