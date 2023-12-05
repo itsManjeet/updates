@@ -1,34 +1,14 @@
 use std::path::PathBuf;
 
 use clap::{value_parser, Arg, ArgAction, Command};
-use swupd::engine::{self, Engine};
-use thiserror::Error;
+use ostree::{gio, Sysroot};
+use ostree::gio::Cancellable;
+use swupd::engine::{Error, Engine};
 
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("Upgrade")]
-    Upgrade(#[from] upgrade::Error),
-
-    #[error("check")]
-    Check(#[from] check::Error),
-
-    #[error("status")]
-    Status(#[from] status::Error),
-
-    #[error("unlock")]
-    Unlock(#[from] unlock::Error),
-
-    #[error("engine")]
-    Engine(#[from] engine::Error),
-
-    #[error("permission error {0}")]
-    PermissionError(String),
-}
-
-mod check;
 mod status;
 mod unlock;
-mod upgrade;
+mod update;
+mod list;
 
 pub async fn run() -> Result<(), Error> {
     let matches = Command::new("swupd")
@@ -43,14 +23,22 @@ pub async fn run() -> Result<(), Error> {
             Arg::new("sysroot")
                 .long("sysroot")
                 .global(true)
-                .help("OStree Sysroot")
+                .help("Ostree Sysroot")
+                .default_value("/")
                 .value_parser(value_parser!(PathBuf)),
         )
+        .arg(Arg::new("remote")
+            .long("remote")
+            .help("Specify remote or url")
+            .action(ArgAction::Set)
+            .global(true)
+            .required(false)
+            .value_parser(value_parser!(String)))
         .arg_required_else_help(true)
-        .subcommand(upgrade::cmd())
+        .subcommand(update::cmd())
         .subcommand(status::cmd())
-        .subcommand(check::cmd())
         .subcommand(unlock::cmd())
+        .subcommand(list::cmd())
         .get_matches();
 
     if matches.get_flag("version") {
@@ -58,19 +46,37 @@ pub async fn run() -> Result<(), Error> {
         return Ok(());
     }
 
-    let engine = Engine::new(matches.get_one::<PathBuf>("sysroot"));
+    let sysroot = Sysroot::new(Some(&gio::File::for_path(matches.get_one::<PathBuf>("sysroot").unwrap())));
     if nix::unistd::getegid().as_raw() != 0 {
         return Err(Error::PermissionError(String::from(
             "need supper user access",
         )));
     }
-    Engine::setup_namespace()?;
+
+    sysroot.set_mount_namespace_in_use();
+    sysroot.load(Cancellable::NONE)?;
+
+    if !sysroot.try_lock()? {
+        return Err(Error::FailedTryLock);
+    }
+
+    sysroot.connect_journal_msg(|_, msg| {
+        println!("{}", msg);
+    });
+
+    let engine = Engine::new(sysroot, None)?;
+
+    match unsafe { syscalls::syscall!(syscalls::Sysno::unshare, 0x00020000) } {
+        Err(error) => return Err(Error::FailedSetupNamespace(error)),
+        Ok(_) => {}
+    };
+
 
     match matches.subcommand() {
-        Some(("upgrade", args)) => upgrade::run(args, &engine).await.map_err(Error::Upgrade),
-        Some(("check", args)) => check::run(args, &engine).await.map_err(Error::Check),
-        Some(("status", args)) => status::run(args, &engine).await.map_err(Error::Status),
-        Some(("unlock", args)) => unlock::run(args, &engine).await.map_err(Error::Unlock),
+        Some(("update", args)) => update::run(args, &engine).await,
+        Some(("status", args)) => status::run(args, &engine).await,
+        Some(("unlock", args)) => unlock::run(args, &engine).await,
+        Some(("list", args)) => list::run(args, &engine).await,
         _ => unreachable!(),
     }
 }

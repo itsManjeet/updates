@@ -1,16 +1,8 @@
 use clap::{ArgMatches, Command};
-use ostree::{gio::Cancellable, Deployment, DeploymentUnlockedState};
-use swupd::engine::{self, Engine};
-use thiserror::Error;
-
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("GLib Error")]
-    GLibError(#[from] ostree::glib::Error),
-
-    #[error("Engine")]
-    Engine(#[from] engine::Error),
-}
+use ostree::{COMMIT_META_KEY_SOURCE_TITLE, COMMIT_META_KEY_VERSION, DeploymentUnlockedState};
+use ostree::glib::{VariantDict, VariantTy};
+use swupd::engine;
+use swupd::engine::{Engine, Error, format_timestamp};
 
 pub fn cmd() -> Command {
     Command::new("status")
@@ -19,9 +11,6 @@ pub fn cmd() -> Command {
 }
 
 pub async fn run(_: &ArgMatches, engine: &Engine) -> Result<(), Error> {
-    let cancellable = Cancellable::NONE;
-    engine.load(cancellable)?;
-    // let repo = engine.sysroot.repo();
     let deployments = engine.sysroot.deployments();
     if deployments.len() == 0 {
         println!("no deployment found!!");
@@ -29,14 +18,10 @@ pub async fn run(_: &ArgMatches, engine: &Engine) -> Result<(), Error> {
     }
 
     let booted_deployment = engine.sysroot.booted_deployment();
-    let pending_deployment: Option<Deployment>;
-    let rollback_deployment: Option<Deployment>;
-    if let Some(_) = booted_deployment.clone() {
-        (pending_deployment, rollback_deployment) = engine.sysroot.query_deployments_for(None);
-    } else {
-        pending_deployment = None;
-        rollback_deployment = None;
-    }
+    let (pending_deployment, rollback_deployment) = match booted_deployment {
+        Some(_) => engine.sysroot.query_deployments_for(None),
+        None => (None, None)
+    };
 
     for deployment in deployments {
         let mut status: String = String::new();
@@ -68,26 +53,36 @@ pub async fn run(_: &ArgMatches, engine: &Engine) -> Result<(), Error> {
         if !status.is_empty() {
             println!("  status: {status}");
         }
-        println!("  ref: {}.{}", deployment.csum(), deployment.deployserial());
+        println!("  revision: {}.{}", deployment.csum(), deployment.deployserial());
 
-        // match repo.load_variant(ostree::ObjectType::Commit, deployment.csum().as_str()) {
-        //     Err(_) => {}
-        //     Ok(commit) => {
-        //         let commit_dict = VariantDict::new(Some(&commit));
-        //         if let Some(version) = commit_dict.lookup_value(
-        //             COMMIT_META_KEY_VERSION.to_string().as_str(),
-        //             Some(VariantTy::STRING),
-        //         ) {
-        //             println!("\tversion: {}", version.get::<String>().unwrap());
-        //         }
-        //         if let Some(source_title) = commit_dict.lookup_value(
-        //             COMMIT_META_KEY_SOURCE_TITLE.to_string().as_str(),
-        //             Some(VariantTy::STRING),
-        //         ) {
-        //             println!("\tsource: {}", source_title.get::<String>().unwrap());
-        //         }
-        //     }
-        // }
+        let repo = &engine.sysroot.repo();
+        let ((base_refspec, (base_rev, base_timestamp)), extensions) = engine::parse_deployment(repo, &deployment)?;
+
+        println!("  base_refspec:   {}\n  revision:       {}\n  timestamp:      {}", base_refspec, truncate(&base_rev, 6), format_timestamp(base_timestamp));
+        println!("  extensions: {}", &extensions.len());
+        for (i, (ext, (rev, timestamp))) in extensions.iter().enumerate() {
+            println!("    {}. refspec:   {}\n       revision:  {}\n       timestamp: {}", i + 1, ext, truncate(rev, 6), format_timestamp(timestamp.clone()));
+        }
+
+        match repo.load_variant(ostree::ObjectType::Commit, deployment.csum().as_str()) {
+            Err(_) => {}
+            Ok(commit) => {
+                let commit_dict = VariantDict::new(Some(&commit.child_value(0)));
+                if let Some(version) = commit_dict.lookup_value(
+                    COMMIT_META_KEY_VERSION.to_string().as_str(),
+                    Some(VariantTy::STRING),
+                ) {
+                    println!("\tversion: {}", version.get::<String>().unwrap());
+                }
+
+                if let Some(source_title) = commit_dict.lookup_value(
+                    COMMIT_META_KEY_SOURCE_TITLE.to_string().as_str(),
+                    Some(VariantTy::STRING),
+                ) {
+                    println!("\tsource: {}", source_title.get::<String>().unwrap());
+                }
+            }
+        }
 
         let unlock_state = deployment.unlocked();
         if unlock_state != DeploymentUnlockedState::None {
@@ -112,6 +107,7 @@ pub async fn run(_: &ArgMatches, engine: &Engine) -> Result<(), Error> {
                 Ok(refspec) => println!("  origin: {}", refspec),
             }
         }
+        println!();
     }
 
     Ok(())
