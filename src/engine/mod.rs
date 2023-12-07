@@ -343,7 +343,6 @@ pub fn parse_deployment(
     };
 
     if !merged {
-        println!(":: simple deployment {}", &origin_refspec);
         let timestamp = ostree::commit_get_timestamp(&commit);
         return Ok((
             DeployInfo {
@@ -356,7 +355,6 @@ pub fn parse_deployment(
     }
 
     // Parse base reference of merge deployment
-    println!(":: merged deployment");
     let revision =
         match commit_metadata.lookup_value("rlxos.base-checksum", Some(&VariantTy::STRING)) {
             Some(revision) => revision.get::<String>().unwrap(),
