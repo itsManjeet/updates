@@ -170,9 +170,13 @@ impl Engine {
             None => None,
         };
 
-        let (base_deployment, mut extensions) = parse_deployment(&repo, &self.deployment)?;
+        let (mut base_deployment, mut extensions) = parse_deployment(&repo, &self.deployment)?;
         if pull_opts.reset {
             extensions.clear();
+        }
+
+        if let Some(base_refspec) = &pull_opts.base_refspec {
+            base_deployment.refspec = base_refspec.clone();
         }
 
         for ext in &pull_opts.include {
@@ -375,8 +379,7 @@ pub fn parse_deployment(
     let mut extensions: Vec<DeployInfo> = Vec::new();
     if let Some(ext_list) = extensions_refspecs {
         for extension_refspec in ext_list.iter() {
-            let (_, extension_refspec_only) =
-                ostree::parse_refspec(&extension_refspec)?;
+            let (_, extension_refspec_only) = ostree::parse_refspec(&extension_refspec)?;
             let extension_stored_id = extension_refspec_only.replace("/", "-");
             let extension_revision = match commit_metadata.lookup_value(
                 &format!("rlxos.extension-revision-{}", &extension_stored_id),
