@@ -71,7 +71,6 @@ impl Engine {
         repo.is_writable()?;
 
         let refspec = self.origin.string("origin", "refspec")?;
-        let (_, refspec) = ostree::parse_refspec(&refspec)?;
         let rev: String;
         let origin: KeyFile;
 
@@ -167,8 +166,8 @@ impl Engine {
         let repo = self.sysroot.repo();
 
         let remote = match &pull_opts.remote {
-            Some(remote) => remote.to_string(),
-            None => self.osname.clone(),
+            Some(remote) => Some(remote.to_string()),
+            None => None,
         };
 
         let (base_deployment, mut extensions) = parse_deployment(&repo, &self.deployment)?;
@@ -179,7 +178,6 @@ impl Engine {
         for ext in &pull_opts.include {
             if !extensions.iter().any(|item| &item.refspec != ext) {
                 extensions.push(DeployInfo {
-                    remote: None,
                     refspec: ext.to_string(),
                     revision: String::from(""),
                     timestamp: 0,
@@ -191,11 +189,27 @@ impl Engine {
             extensions.retain(|d| d.refspec != key);
         });
 
-        let mut refs: Vec<&str> = Vec::new();
-        refs.push(&base_deployment.refspec);
+        let mut refs: Vec<String> = Vec::new();
+        let (base_remote, base_refspec) = ostree::parse_refspec(&base_deployment.refspec)?;
+        refs.push(base_refspec.to_string());
+
+        let remote = match remote {
+            Some(remote) => remote.to_string(),
+            None => match base_remote {
+                Some(remote) => remote.to_string(),
+                None => {
+                    let remote_list = repo.remote_list();
+                    if remote_list.is_empty() {
+                        return Err(Error::NoRemoteFound);
+                    }
+                    remote_list.first().unwrap().to_string()
+                }
+            },
+        };
 
         for info in extensions.iter() {
-            refs.push(&info.refspec);
+            let (_, ext_refspec) = ostree::parse_refspec(&info.refspec)?;
+            refs.push(ext_refspec.to_string());
         }
 
         let options = VariantDict::new(None);
@@ -216,7 +230,6 @@ impl Engine {
         }
 
         let (base_new_rev, _) = get_rev_timestamp_of_ref(&repo, &base_deployment.refspec)?;
-        println!("revision {}: {}", &base_deployment.refspec, &base_new_rev);
         let mut changelog = String::new();
 
         let core_updated = match base_deployment.revision != base_new_rev {
@@ -306,7 +319,6 @@ pub enum UpdateResult {
 }
 
 pub struct DeployInfo {
-    pub remote: Option<String>,
     pub refspec: String,
     pub timestamp: u64,
     pub revision: String,
@@ -316,17 +328,13 @@ pub fn parse_deployment(
     repo: &Repo,
     deployment: &Deployment,
 ) -> Result<(DeployInfo, Vec<DeployInfo>), Error> {
+    // Get base reference information
     let origin = deployment.origin().unwrap();
-    let refspec = origin.string("origin", "refspec")?;
-    let (remote, refspec) = ostree::parse_refspec(&refspec)?;
-    let channel = match origin.string("origin", "channel") {
-        Ok(channel) => channel.to_string(),
-        Err(_) => String::from("stable"),
-    };
+    let origin_refspec = origin.string("origin", "refspec")?;
 
-    let rev = deployment.csum();
+    let revision = deployment.csum().to_string();
 
-    let commit = repo.load_variant(ObjectType::Commit, rev.as_str())?;
+    let commit = repo.load_variant(ObjectType::Commit, &revision)?;
     let commit_metadata = VariantDict::new(Some(&commit.child_value(0)));
 
     let merged = match commit_metadata.lookup_value("rlxos.merged", Some(&VariantTy::BOOLEAN)) {
@@ -335,60 +343,65 @@ pub fn parse_deployment(
     };
 
     if !merged {
-        println!(":: simple deployment {}", &refspec);
         let timestamp = ostree::commit_get_timestamp(&commit);
         return Ok((
             DeployInfo {
-                remote: remote.and_then(|s| Some(s.to_string())),
-                refspec: refspec.to_string(),
+                refspec: origin_refspec.to_string(),
                 timestamp,
-                revision: rev.to_string(),
+                revision,
             },
             Vec::new(),
         ));
     }
-    println!(":: merged deployment");
-    let base_checksum =
+
+    // Parse base reference of merge deployment
+    let revision =
         match commit_metadata.lookup_value("rlxos.base-checksum", Some(&VariantTy::STRING)) {
-            Some(base_checksum) => base_checksum.get::<String>().unwrap(),
+            Some(revision) => revision.get::<String>().unwrap(),
             None => return Err(Error::NoBaseCheckSum),
         };
-    let base_checksum_commit = repo.load_variant(ObjectType::Commit, base_checksum.as_str())?;
-    let base_checksum_timestamp = ostree::commit_get_timestamp(&base_checksum_commit);
 
-    let extensions_list =
-        match commit_metadata.lookup_value("rlxos.ext-list", Some(&VariantTy::STRING_ARRAY)) {
-            Some(extension_list) => Some(extension_list.get::<Vec<String>>().unwrap()),
-            None => None,
-        };
+    let commit = repo.load_variant(ObjectType::Commit, &revision)?;
+    let timestamp = ostree::commit_get_timestamp(&commit);
+
+    // Parse Extension
+    let extensions_refspecs = match commit_metadata
+        .lookup_value("rlxos.extensions-refspecs", Some(&VariantTy::STRING_ARRAY))
+    {
+        Some(extension_list) => Some(extension_list.get::<Vec<String>>().unwrap()),
+        None => None,
+    };
 
     let mut extensions: Vec<DeployInfo> = Vec::new();
-    if let Some(ext_list) = extensions_list {
-        for ext in ext_list.iter() {
-            let ext_checksum = match commit_metadata.lookup_value(
-                &format!("rlxos.ext-checksum-{}", &ext.replace("/", "-")),
+    if let Some(ext_list) = extensions_refspecs {
+        for extension_refspec in ext_list.iter() {
+            let (_, extension_refspec_only) =
+                ostree::parse_refspec(&extension_refspec)?;
+            let extension_stored_id = extension_refspec_only.replace("/", "-");
+            let extension_revision = match commit_metadata.lookup_value(
+                &format!("rlxos.extension-revision-{}", &extension_stored_id),
                 Some(&VariantTy::STRING),
             ) {
-                Some(ext_checksum) => ext_checksum.get::<String>().unwrap(),
-                None => return Err(Error::NoExtCheckSum(ext.clone())),
+                Some(revision) => revision.get::<String>().unwrap(),
+                None => return Err(Error::NoExtCheckSum(extension_refspec.clone())),
             };
-            let ext_commit = repo.load_variant(ObjectType::Commit, ext_checksum.as_str())?;
-            let ext_timestamp = ostree::commit_get_timestamp(&ext_commit);
+
+            let extension_commit = repo.load_variant(ObjectType::Commit, &extension_refspec)?;
+            let extension_timestamp = ostree::commit_get_timestamp(&extension_commit);
+
             extensions.push(DeployInfo {
-                remote: None,
-                refspec: ext.clone(),
-                revision: ext_checksum,
-                timestamp: ext_timestamp,
+                refspec: extension_refspec.clone(),
+                revision: extension_revision.clone(),
+                timestamp: extension_timestamp.clone(),
             });
         }
     }
 
     Ok((
         DeployInfo {
-            remote: None,
-            refspec: format!("{}/os/{}", env::consts::ARCH, channel),
-            revision: base_checksum,
-            timestamp: base_checksum_timestamp,
+            refspec: origin_refspec.to_string(),
+            revision,
+            timestamp,
         },
         extensions,
     ))
