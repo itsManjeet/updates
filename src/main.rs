@@ -1,5 +1,5 @@
 use std::error::Error;
-use swupd::engine;
+use updatectl::engine;
 
 mod cmd;
 

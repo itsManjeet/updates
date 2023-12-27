@@ -1,7 +1,7 @@
 use clap::{ArgMatches, Command};
 
 use ostree::{gio::Cancellable, DeploymentUnlockedState};
-use swupd::engine::{Engine, Error};
+use updatectl::engine::{Engine, Error};
 
 
 pub fn cmd() -> Command {

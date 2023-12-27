@@ -2,7 +2,7 @@ use std::env;
 use clap::{Arg, ArgAction, ArgMatches, Command, value_parser};
 
 use ostree::{gio::Cancellable, AsyncProgress};
-use swupd::engine::{Engine, Error, PullOpts, UpdateResult};
+use updatectl::engine::{Engine, Error, PullOpts, UpdateResult};
 
 pub fn cmd() -> Command {
     Command::new("update")
@@ -39,7 +39,7 @@ pub fn cmd() -> Command {
 pub async fn run(args: &ArgMatches, engine: &Engine) -> Result<(), Error> {
     let cancellable = Cancellable::NONE;
     let progress = AsyncProgress::new();
-    progress.connect_changed(swupd::progress::update_callback);
+    progress.connect_changed(updatectl::progress::update_callback);
 
     let include = args.get_many::<String>("include")
         .into_iter()

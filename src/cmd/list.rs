@@ -1,7 +1,7 @@
 use clap::{Arg, ArgAction, ArgMatches, Command, value_parser};
 
 use ostree::{gio::Cancellable, AsyncProgress};
-use swupd::engine::{Engine, Error};
+use updatectl::engine::{Engine, Error};
 
 pub fn cmd() -> Command {
     Command::new("list")
@@ -23,7 +23,7 @@ pub fn cmd() -> Command {
 pub async fn run(args: &ArgMatches, engine: &Engine) -> Result<(), Error> {
     let cancellable = Cancellable::NONE;
     let progress = AsyncProgress::new();
-    progress.connect_changed(swupd::progress::update_callback);
+    progress.connect_changed(updatectl::progress::update_callback);
 
     let refs = engine.list(args.get_one::<String>("remote"), cancellable)?;
     if refs.is_empty() {

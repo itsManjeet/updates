@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::{value_parser, Arg, ArgAction, Command};
 use ostree::{gio, Sysroot};
 use ostree::gio::Cancellable;
-use swupd::engine::{Error, Engine};
+use updatectl::engine::{Error, Engine};
 
 mod status;
 mod unlock;
@@ -11,7 +11,7 @@ mod update;
 mod list;
 
 pub async fn run() -> Result<(), Error> {
-    let matches = Command::new("swupd")
+    let matches = Command::new("updatectl")
         .about("Software Updater daemon")
         .arg(
             Arg::new("version")
@@ -72,11 +72,15 @@ pub async fn run() -> Result<(), Error> {
     };
 
 
-    match matches.subcommand() {
+    let result = match matches.subcommand() {
         Some(("update", args)) => update::run(args, &engine).await,
         Some(("status", args)) => status::run(args, &engine).await,
         Some(("unlock", args)) => unlock::run(args, &engine).await,
         Some(("list", args)) => list::run(args, &engine).await,
         _ => unreachable!(),
-    }
+    };
+
+    _ = engine.sysroot.cleanup(Cancellable::NONE);
+
+    result
 }

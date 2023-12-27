@@ -1,8 +1,8 @@
 use clap::{ArgMatches, Command};
 use ostree::{COMMIT_META_KEY_SOURCE_TITLE, COMMIT_META_KEY_VERSION, DeploymentUnlockedState};
 use ostree::glib::{VariantDict, VariantTy};
-use swupd::engine;
-use swupd::engine::{Engine, Error, format_timestamp};
+use updatectl::engine;
+use updatectl::engine::{Engine, Error, format_timestamp};
 
 pub fn cmd() -> Command {
     Command::new("status")
