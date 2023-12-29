@@ -23,7 +23,7 @@ pub fn update_callback(p: &AsyncProgress) {
     }
 
     if caught_error {
-        message.push_str("\ncaught error, waiting for outstanding tasks");
+        message.push_str("caught error, waiting for outstanding tasks");
     }
 
     if outstanding_fetches > 0 {
@@ -100,25 +100,25 @@ pub fn update_callback(p: &AsyncProgress) {
                 let est_time_str = format_duration(est_time_duration).to_string();
 
                 message.push_str(&format!(
-                    "\nReceiving delta parts: {fetched_delta_parts}/{total_delta_parts} {formatted_fetched}/{formatted_total} {formatted_bytes_sec}/s {est_time_str} remaining"
+                    "Receiving delta parts: {fetched_delta_parts}/{total_delta_parts} {formatted_fetched}/{formatted_total} {formatted_bytes_sec}/s {est_time_str} remaining"
                 ));
             } else {
                 message.push_str(&format!(
-                    "\nReceiving delta parts: {fetched_delta_parts}/{total_delta_parts} {formatted_fetched}/{formatted_total}"
+                    "Receiving delta parts: {fetched_delta_parts}/{total_delta_parts} {formatted_fetched}/{formatted_total}"
                 ));
             }
         }
 
         if scanning > 0 || outstanding_metadata_fetches > 0 {
-            message.push_str(&format!("\nReceiving metadata objects: {metadata_fetched}/(estimating) {formatted_bytes_sec}/s {formatted_bytes_transferred}"))
+            message.push_str(&format!("Receiving metadata objects: {metadata_fetched}/(estimating) {formatted_bytes_sec}/s {formatted_bytes_transferred}"))
         }
     }
 
     if outstanding_writes > 0 {
-        message.push_str(&format!("\nwriting objects: {}", outstanding_writes));
+        message.push_str(&format!("writing objects: {}", outstanding_writes));
     }
     if scanned_metadata > 0 {
-        message.push_str(&format!("\nScanning metadata: {}", scanned_metadata));
+        message.push_str(&format!("Scanning metadata: {}", scanned_metadata));
     }
     print!("\r{}", message);
 }
