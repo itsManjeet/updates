@@ -1,7 +1,7 @@
 use clap::{ArgMatches, Command};
 
 use ostree::{gio::Cancellable, AsyncProgress};
-use swupd::engine::{self, Engine, UpdateResult};
+use updatectl::engine::{self, Engine, UpdateResult};
 use thiserror::Error;
 
 #[derive(Debug, Error)]

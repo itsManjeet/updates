@@ -1,6 +1,6 @@
 use clap::{ArgMatches, Command};
 use ostree::{gio::Cancellable, Deployment, DeploymentUnlockedState};
-use swupd::engine::{self, Engine};
+use updatectl::engine::{self, Engine};
 use thiserror::Error;
 
 #[derive(Debug, Error)]

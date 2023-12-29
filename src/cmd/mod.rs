@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{value_parser, Arg, ArgAction, Command};
-use swupd::engine::{self, Engine};
+use updatectl::engine::{self, Engine};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -31,8 +31,8 @@ mod unlock;
 mod upgrade;
 
 pub async fn run() -> Result<(), Error> {
-    let matches = Command::new("swupd")
-        .about("Software Updater daemon")
+    let matches = Command::new("updatectl")
+        .about("Software Updater tool")
         .arg(
             Arg::new("version")
                 .short('v')
