@@ -20,7 +20,7 @@ pub fn cmd() -> Command {
 pub async fn run(_: &ArgMatches, engine: &Engine) -> Result<(), Error> {
     let cancellable = Cancellable::NONE;
     let progress = AsyncProgress::new();
-    progress.connect_changed(swupd::progress::update_callback);
+    progress.connect_changed(updatectl::progress::update_callback);
 
     engine.load(cancellable)?;
 
