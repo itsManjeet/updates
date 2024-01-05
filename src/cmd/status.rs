@@ -2,7 +2,7 @@ use clap::{ArgMatches, Command};
 use ostree::{COMMIT_META_KEY_SOURCE_TITLE, COMMIT_META_KEY_VERSION, DeploymentUnlockedState};
 use ostree::glib::{VariantDict, VariantTy};
 use updatectl::engine;
-use updatectl::engine::{Engine, Error, format_timestamp};
+use updatectl::engine::{Engine, Error};
 
 pub fn cmd() -> Command {
     Command::new("status")
@@ -53,15 +53,15 @@ pub async fn run(_: &ArgMatches, engine: &Engine) -> Result<(), Error> {
         if !status.is_empty() {
             println!("  status: {status}");
         }
-        println!("  revision: {}.{}", deployment.csum(), deployment.deployserial());
 
         let repo = &engine.sysroot.repo();
         let (base_deployment, extensions) = engine::parse_deployment(repo, &deployment)?;
 
-        println!("  base_refspec:   {}\n  revision:       {}\n  timestamp:      {}", base_deployment.refspec, truncate(&base_deployment.revision, 6), format_timestamp(base_deployment.timestamp));
-        println!("  extensions: {}", &extensions.len());
+        println!("  core       :   {}", base_deployment.refspec);
+        println!("  revision   :   {}", truncate(&base_deployment.revision, 6));
+        println!("  extensions :   {}", &extensions.len());
         for (i, ext_info) in extensions.iter().enumerate() {
-            println!("    {}. refspec:   {}\n       revision:  {}\n       timestamp: {}", i + 1, ext_info.refspec, truncate(&ext_info.revision, 6), format_timestamp(ext_info.timestamp.clone()));
+            println!("    {}. refspec:   {}\n       revision:  {}", i + 1, ext_info.refspec, truncate(&ext_info.revision, 6));
         }
 
         match repo.load_variant(ostree::ObjectType::Commit, deployment.csum().as_str()) {

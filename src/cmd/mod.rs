@@ -1,14 +1,14 @@
 use std::path::PathBuf;
 
 use clap::{value_parser, Arg, ArgAction, Command};
-use ostree::{gio, Sysroot};
 use ostree::gio::Cancellable;
-use updatectl::engine::{Error, Engine};
+use ostree::{gio, Sysroot};
+use updatectl::engine::{Engine, Error};
 
+mod list;
 mod status;
 mod unlock;
 mod update;
-mod list;
 
 pub async fn run() -> Result<(), Error> {
     let matches = Command::new("updatectl")
@@ -27,13 +27,15 @@ pub async fn run() -> Result<(), Error> {
                 .default_value("/")
                 .value_parser(value_parser!(PathBuf)),
         )
-        .arg(Arg::new("remote")
-            .long("remote")
-            .help("Specify remote or url")
-            .action(ArgAction::Set)
-            .global(true)
-            .required(false)
-            .value_parser(value_parser!(String)))
+        .arg(
+            Arg::new("remote")
+                .long("remote")
+                .help("Specify remote or url")
+                .action(ArgAction::Set)
+                .global(true)
+                .required(false)
+                .value_parser(value_parser!(String)),
+        )
         .arg_required_else_help(true)
         .subcommand(update::cmd())
         .subcommand(status::cmd())
@@ -46,7 +48,9 @@ pub async fn run() -> Result<(), Error> {
         return Ok(());
     }
 
-    let sysroot = Sysroot::new(Some(&gio::File::for_path(matches.get_one::<PathBuf>("sysroot").unwrap())));
+    let sysroot = Sysroot::new(Some(&gio::File::for_path(
+        matches.get_one::<PathBuf>("sysroot").unwrap(),
+    )));
     if nix::unistd::getegid().as_raw() != 0 {
         return Err(Error::PermissionError(String::from(
             "need supper user access",
@@ -71,16 +75,11 @@ pub async fn run() -> Result<(), Error> {
         Ok(_) => {}
     };
 
-
-    let result = match matches.subcommand() {
+    match matches.subcommand() {
         Some(("update", args)) => update::run(args, &engine).await,
         Some(("status", args)) => status::run(args, &engine).await,
         Some(("unlock", args)) => unlock::run(args, &engine).await,
         Some(("list", args)) => list::run(args, &engine).await,
         _ => unreachable!(),
-    };
-
-    _ = engine.sysroot.cleanup(Cancellable::NONE);
-
-    result
+    }
 }

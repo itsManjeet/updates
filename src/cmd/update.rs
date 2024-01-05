@@ -2,7 +2,7 @@ use std::env;
 use clap::{Arg, ArgAction, ArgMatches, Command, value_parser};
 
 use ostree::{gio::Cancellable, AsyncProgress};
-use updatectl::engine::{Engine, Error, PullOpts, UpdateResult};
+use updatectl::engine::{DeployInfo, Engine, Error, UpdateResult};
 
 pub fn cmd() -> Command {
     Command::new("update")
@@ -66,21 +66,35 @@ pub async fn run(args: &ArgMatches, engine: &Engine) -> Result<(), Error> {
         None => None,
     };
 
-    let pull_opts = PullOpts {
-        dry_run: args.get_flag("dry-run"),
-        reset: args.get_flag("reset"),
-        remote: args.get_one::<String>("remote").and_then(|s| { Some(s.clone()) }),
+    let (mut core, mut extensions) = engine.deploy_info()?;
+    for inc in include {
+        if !contains(&extensions, &inc).0 {
+            extensions.push(DeployInfo {
+                refspec: inc,
+                revision: "".to_string(),
+            });
+        }
+    }
 
-        include,
-        exclude,
+    for exc in exclude {
+        let (contain, idx) = contains(&extensions, &exc);
+        if contain {
+            extensions.remove(idx);
+        }
+    }
 
-        base_refspec,
-    };
+    if args.get_flag("reset") {
+        extensions.clear();
+    }
+    if let Some(base_refspec) = base_refspec {
+        core.refspec = base_refspec;
+    }
 
-    match engine.pull(&pull_opts, Some(&progress), cancellable).await? {
+    let remote = args.get_one::<String>("remote");
+    match engine.pull(core, extensions, remote, args.get_flag("dry-run"), Some(&progress), cancellable).await? {
         UpdateResult::NoUpdates => println!("\nno update available"),
         UpdateResult::UpdatesAvailable(update_info) => {
-            if pull_opts.dry_run {
+            if args.get_flag("dry-run") {
                 println!("{}", update_info.changelog);
             } else {
                 engine.deploy(&update_info, Cancellable::NONE).await?;
@@ -89,4 +103,13 @@ pub async fn run(args: &ArgMatches, engine: &Engine) -> Result<(), Error> {
     };
 
     Ok(())
+}
+
+fn contains(extensions: &Vec<DeployInfo>, id: &str) -> (bool, usize) {
+    for (idx, extension_info) in extensions.iter().enumerate() {
+        if extension_info.refspec == id {
+            return (true, idx);
+        }
+    }
+    (false, 0)
 }

@@ -1004,6 +1004,7 @@ dependencies = [
  "humansize",
  "humantime",
  "indicatif",
+ "log",
  "nix",
  "ostree",
  "syscalls",
