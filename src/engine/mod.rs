@@ -63,8 +63,7 @@ impl Engine {
         let repo = self.sysroot.repo();
         repo.is_writable()?;
 
-        let refspec = self.origin.string("origin", "refspec")?;
-        let rev: String;
+        let revision: String;
         let origin: KeyFile;
 
         if update_info.merged {
@@ -101,19 +100,19 @@ impl Engine {
             repo.transaction_set_ref(None, &deployment_refspec, Some(&commit_checksum));
             let _stats = repo.commit_transaction(cancellable)?;
 
-            rev = repo
+            revision = repo
                 .resolve_rev(&deployment_refspec, false)?
                 .unwrap()
                 .to_string();
             origin = self.sysroot.origin_new_from_refspec(&deployment_refspec);
             origin.set_string("rlxos", "extensions", extensions.join(";").as_str());
-            origin.set_string("rlxos", "refspec", &update_info.core.refspec);
-
             origin.set_boolean("rlxos", "merged", true);
         } else {
-            rev = repo.resolve_rev(&refspec, false)?.unwrap().to_string();
-            origin = self.sysroot.origin_new_from_refspec(&refspec);
+            revision = update_info.core.revision.clone();
+            origin = self.sysroot.origin_new_from_refspec(&update_info.core.refspec);
+            origin.set_boolean("rlxos", "merged", false);
         }
+        origin.set_string("rlxos", "refspec", &update_info.core.refspec);
 
         let opts = ostree::SysrootDeployTreeOpts {
             ..Default::default()
@@ -121,7 +120,7 @@ impl Engine {
 
         let deployment = self.sysroot.deploy_tree_with_options(
             Some(&self.osname),
-            &rev,
+            &revision,
             Some(&origin),
             Some(&self.deployment),
             Some(&opts),
@@ -223,8 +222,10 @@ impl Engine {
                 )?);
                 updates_available = true;
             }
+            let (ext_remote, ext_refspec) = ostree::parse_refspec(&extension_info.refspec.clone())?;
+            let ext_remote = ext_remote.unwrap_or_else(|| GString::from(remote.as_str()));
             updated_extensions.push(DeployInfo {
-                refspec: extension_info.refspec.clone(),
+                refspec: format!("{ext_remote}:{ext_refspec}"),
                 revision: new_revision,
             });
         }
@@ -235,7 +236,7 @@ impl Engine {
 
         let update_info = UpdateInfo {
             core: DeployInfo {
-                refspec: core.refspec,
+                refspec: format!("{remote}:{base_refspec}"),
                 revision: base_new_rev,
             },
             merged: !updated_extensions.is_empty(),
