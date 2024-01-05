@@ -57,6 +57,11 @@ pub async fn run() -> Result<(), Error> {
         )));
     }
 
+    match unsafe { syscalls::syscall!(syscalls::Sysno::unshare, 0x00020000) } {
+        Err(error) => return Err(Error::FailedSetupNamespace(error)),
+        Ok(_) => {}
+    };
+
     sysroot.set_mount_namespace_in_use();
     sysroot.load(Cancellable::NONE)?;
 
@@ -70,10 +75,6 @@ pub async fn run() -> Result<(), Error> {
 
     let engine = Engine::new(sysroot, None)?;
 
-    match unsafe { syscalls::syscall!(syscalls::Sysno::unshare, 0x00020000) } {
-        Err(error) => return Err(Error::FailedSetupNamespace(error)),
-        Ok(_) => {}
-    };
 
     match matches.subcommand() {
         Some(("update", args)) => update::run(args, &engine).await,
