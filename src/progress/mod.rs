@@ -25,7 +25,7 @@ pub fn update_callback(p: &AsyncProgress) {
     } else if caught_error {
         message.push_str("caught error, waiting for outstanding tasks");
     } else if outstanding_fetches > 0 {
-        
+
         let current_time = ostree::glib::monotonic_time() as i64;
         let bytes_transferred = p.variant("bytes-transferred").unwrap().get::<u64>().unwrap();
         let fetched = p.variant("fetched").unwrap().get::<u32>().unwrap();
@@ -77,7 +77,7 @@ pub fn update_callback(p: &AsyncProgress) {
         //     } else {
         //         message.push_str(&format!("Receiving delta parts: {fetched_delta_parts}/{total_delta_parts} {formatted_fetched}/{formatted_total}"));
         //     }
-        // } else 
+        // } else
         if scanning > 0 || outstanding_metadata_fetches > 0 {
             message.push_str(&format!("Receiving metadata objects: {metadata_fetched}/(estimating) {formatted_bytes_sec}/s {formatted_bytes_transferred}"))
         } else {

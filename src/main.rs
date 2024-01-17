@@ -1,28 +1,36 @@
 use std::error::Error;
-use updatectl::engine;
+use std::future::pending;
+use std::path::PathBuf;
+use std::string::ToString;
 
-mod cmd;
+use zbus::ConnectionBuilder;
+
+use updatectl::engine::Engine;
+use updatectl::server::Server;
 
 #[tokio::main]
-async fn main() {
-    if let Err(error) = cmd::run().await {
-        report_error(error);
-        std::process::exit(1);
-    }
+async fn main() -> Result<(), Box<dyn Error>> {
+    setup_namespaces()?;
+
+    let engine = Engine::new(&PathBuf::from("/"))?;
+    let server = Server { engine: engine.into() };
+
+    let _conn = ConnectionBuilder::system()?.name("dev.rlxos.updates")?.serve_at("/dev/rlxos/updates", server)?.build().await?;
+
+    println!("listening...");
+    pending::<()>().await;
+    Ok(())
 }
 
-fn report_error(error: engine::Error) {
-    let sources = sources(&error);
-    let error = sources.join(": ");
-    eprintln!("ERROR: {error}");
-}
-
-fn sources(error: &engine::Error) -> Vec<String> {
-    let mut sources = vec![error.to_string()];
-    let mut source = error.source();
-    while let Some(error) = source.take() {
-        sources.push(error.to_string());
-        source = error.source();
+pub fn setup_namespaces() -> Result<(), updatectl::Error> {
+    if nix::unistd::getegid().as_raw() != 0 {
+        return Err(updatectl::Error::PermissionDenied("need superuser access".to_string()));
     }
-    sources
+
+    match unsafe { syscalls::syscall!(syscalls::Sysno::unshare, 0x00020000) } {
+        Err(error) => return Err(updatectl::Error::FailedSetupNamespace(error)),
+        Ok(_) => {}
+    };
+
+    Ok(())
 }
