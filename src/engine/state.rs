@@ -5,11 +5,13 @@ use ostree::glib::{GString, VariantDict, VariantTy};
 
 use crate::Error;
 
+#[derive(Debug, Clone)]
 pub struct RefState {
     pub refspec: String,
     pub revision: String,
 }
 
+#[derive(Debug, Clone)]
 pub struct State {
     pub core: RefState,
     pub merged: bool,
@@ -31,6 +33,50 @@ impl State {
             }
         }
         (options, extensions_string)
+    }
+
+    pub fn channel(&self) -> String {
+        self.core.refspec.to_string().split("/")
+            .map(|s| s.to_string()).collect::<Vec<String>>()
+            .last()
+            .unwrap()
+            .to_string()
+    }
+
+    pub fn add_extension(&mut self, extension: &str) {
+        let extension = match extension.contains("/extension/") {
+            true => extension.to_string(),
+            false => format!("rlxos:{}/extension/{}/{}", env::consts::ARCH, extension, self.channel()),
+        };
+        if let Some(ref mut extensions) = self.extensions {
+            if !extensions.iter().find(|v| {
+                v.refspec == extension
+            }).is_none() {
+                extensions.push(RefState {
+                    refspec: extension,
+                    revision: "".into(),
+                })
+            }
+        } else {
+            let mut extensions: Vec<RefState> = Vec::new();
+            extensions.push(RefState {
+                refspec: extension,
+                revision: "".into(),
+            });
+            self.extensions = Some(extensions);
+        }
+    }
+
+    pub fn switch_channel(&self, channel: &str) -> State {
+        let mut new_state = self.clone();
+        let old_channel = self.channel();
+        new_state.core.refspec = new_state.core.refspec.replace(&old_channel, channel);
+        if let Some(ref mut extensions) = new_state.extensions {
+            for extension in extensions {
+                extension.refspec = extension.refspec.replace(&old_channel, channel);
+            }
+        }
+        new_state
     }
     pub fn for_deployment(repo: &Repo, deployment: &Deployment) -> Result<State, Error> {
         let origin = deployment.origin().unwrap();

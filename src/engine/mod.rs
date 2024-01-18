@@ -53,12 +53,22 @@ impl Engine {
         State::for_deployment(&self.sysroot.repo(), &merged_deployment)
     }
 
+    pub fn states(&self) -> Result<Vec<State>, Error> {
+        let mut states_list: Vec<State> = Vec::new();
+        for deployment in self.sysroot.deployments() {
+            let state = State::for_deployment(&self.sysroot.repo(), &deployment)?;
+            states_list.push(state);
+        }
+
+        Ok(states_list)
+    }
+
     pub fn check(
         &self,
         progress: Option<&AsyncProgress>,
         cancellable: Option<&Cancellable>,
     ) -> Result<(bool, String), Error> {
-        let current_state = self.state()?;
+        let current_state = self.state()?.clone();
         let (changed, changelog, _) = pull(&self.sysroot.repo(), &current_state, None, true, progress, cancellable)?;
         Ok((changed, changelog))
     }
@@ -69,6 +79,56 @@ impl Engine {
         cancellable: Option<&Cancellable>,
     ) -> Result<bool, Error> {
         let current_state = self.state()?;
+        let (changed, _, state) = pull(&self.sysroot.repo(), &current_state, None, false, progress, cancellable)?;
+        if changed {
+            deploy(&self.sysroot, &state, cancellable)?;
+        }
+        Ok(changed)
+    }
+
+    pub fn switch(
+        &self,
+        channel: &str,
+        progress: Option<&AsyncProgress>,
+        cancellable: Option<&Cancellable>,
+    ) -> Result<bool, Error> {
+        let current_state = self.state()?;
+        let current_state = current_state.switch_channel(channel);
+        let (changed, _, state) = pull(&self.sysroot.repo(), &current_state, None, false, progress, cancellable)?;
+        if changed {
+            deploy(&self.sysroot, &state, cancellable)?;
+        }
+        Ok(changed)
+    }
+
+    pub fn reset(
+        &self,
+        channel: &str,
+        progress: Option<&AsyncProgress>,
+        cancellable: Option<&Cancellable>,
+    ) -> Result<bool, Error> {
+        let current_state = self.state()?;
+        let mut current_state = current_state.switch_channel(channel);
+        current_state.extensions = None;
+        let (changed, _, state) = pull(&self.sysroot.repo(), &current_state, None, false, progress, cancellable)?;
+        if changed {
+            deploy(&self.sysroot, &state, cancellable)?;
+        }
+        Ok(changed)
+    }
+
+    pub fn add_extension(
+        &self,
+        extensions: Vec<String>,
+        progress: Option<&AsyncProgress>,
+        cancellable: Option<&Cancellable>,
+    ) -> Result<bool, Error> {
+        let current_state = self.state()?;
+        let mut current_state = current_state.clone();
+        for extension in extensions {
+            current_state.add_extension(&extension);
+        }
+
         let (changed, _, state) = pull(&self.sysroot.repo(), &current_state, None, false, progress, cancellable)?;
         if changed {
             deploy(&self.sysroot, &state, cancellable)?;

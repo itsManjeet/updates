@@ -1,9 +1,9 @@
 use thiserror::Error;
-use zbus::DBusError;
 
 pub mod progress;
 pub mod server;
 pub mod engine;
+pub mod window;
 
 
 #[derive(Debug, Error)]

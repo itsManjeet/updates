@@ -1,11 +1,9 @@
+use std::fmt::Debug;
 use std::sync::Mutex;
 
+use zbus::{dbus_interface, DBusError};
 use ostree::gio::Cancellable;
-use zbus::{dbus_interface, DBusError, Message, MessageHeader};
-use zbus::names::ErrorName;
-
 use crate::engine::Engine;
-use crate::Error;
 
 #[derive(Debug)]
 pub struct Server {
@@ -21,7 +19,9 @@ impl Server {
             let result = engine.check(None, Cancellable::NONE);
             engine.unlock();
 
-            result
+            let (changed, changelog) = result?;
+
+            Ok((changed, changelog))
         } else {
             Err(Error::EngineIsBusy)
         }
@@ -31,25 +31,80 @@ impl Server {
         if let Ok(engine) = self.engine.lock() {
             engine.lock()?;
 
+            let result = engine.apply(None, Cancellable::NONE);
+
             engine.unlock();
 
-            result
+            let changed = result?;
+
+            Ok(changed)
         } else {
             Err(Error::EngineIsBusy)
         }
     }
 
-    async fn state(&mut self) -> Result<((String, String), Vec<(String, String)>), Error> {
+    async fn state(&mut self) -> Result<Vec<((String, String), Vec<(String, String)>)>, Error> {
         if let Ok(engine) = self.engine.lock() {
-            let state = engine.state()?;
-            let mut extensions_list: Vec<(String, String)> = Vec::new();
-            if let Some(extensions) = &state.extensions {
-                for extension in extensions {
-                    extensions_list.push((extension.refspec.clone(), extension.revision.clone()));
+            let mut result: Vec<((String, String), Vec<(String, String)>)> = Vec::new();
+            for state in engine.states()? {
+                let mut extensions_list: Vec<(String, String)> = Vec::new();
+                if let Some(extensions) = &state.extensions {
+                    for extension in extensions {
+                        extensions_list.push((extension.refspec.clone(), extension.revision.clone()));
+                    }
                 }
-            }
 
-            Ok(((state.core.refspec.clone(), state.core.revision.clone()), extensions_list))
+                result.push(((state.core.refspec.clone(), state.core.revision.clone()), extensions_list));
+            }
+            Ok(result)
+        } else {
+            Err(Error::EngineIsBusy)
+        }
+    }
+
+    async fn switch(&mut self, channel: &str) -> Result<bool, Error> {
+        if let Ok(engine) = self.engine.lock() {
+            engine.lock()?;
+
+            let result = engine.switch(channel, None, Cancellable::NONE);
+
+            engine.unlock();
+
+            let changed = result?;
+
+            Ok(changed)
+        } else {
+            Err(Error::EngineIsBusy)
+        }
+    }
+
+    async fn reset(&mut self, channel: &str) -> Result<bool, Error> {
+        if let Ok(engine) = self.engine.lock() {
+            engine.lock()?;
+
+            let result = engine.reset(channel, None, Cancellable::NONE);
+
+            engine.unlock();
+
+            let changed = result?;
+
+            Ok(changed)
+        } else {
+            Err(Error::EngineIsBusy)
+        }
+    }
+
+    async fn add_extension(&mut self, extensions: Vec<String>) -> Result<bool, Error> {
+        if let Ok(engine) = self.engine.lock() {
+            engine.lock()?;
+
+            let result = engine.add_extension(extensions, None, Cancellable::NONE);
+
+            engine.unlock();
+
+            let changed = result?;
+
+            Ok(changed)
         } else {
             Err(Error::EngineIsBusy)
         }
@@ -57,24 +112,22 @@ impl Server {
 
     async fn list(&mut self) -> Result<Vec<String>, Error> {
         if let Ok(engine) = self.engine.lock() {
-            engine.list(None, Cancellable::NONE)
+            let list = engine.list(None, Cancellable::NONE)?;
+            Ok(list)
         } else {
             Err(Error::EngineIsBusy)
         }
     }
 }
 
+#[derive(Debug, DBusError)]
+pub enum Error {
+    Engine(String),
+    EngineIsBusy,
+}
 
-impl DBusError for Error {
-    fn create_reply(&self, msg: &MessageHeader<'_>) -> zbus::Result<Message> {
-        todo!()
-    }
-
-    fn name(&self) -> ErrorName<'_> {
-        todo!()
-    }
-
-    fn description(&self) -> Option<&str> {
-        todo!()
+impl From<crate::Error> for Error {
+    fn from(value: crate::Error) -> Self {
+        Error::Engine(value.to_string())
     }
 }

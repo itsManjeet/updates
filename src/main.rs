@@ -2,33 +2,40 @@ use std::error::Error;
 use std::future::pending;
 use std::path::PathBuf;
 use std::string::ToString;
+use tracing::{debug, info};
 
 use zbus::ConnectionBuilder;
 
-use updatectl::engine::Engine;
-use updatectl::server::Server;
+use updates::{engine::Engine, server::Server};
+
+const INTERFACE_NAME: &str = "dev.rlxos.updates";
+const OBJECT_PATH: &str = "/dev/rlxos/updates";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    tracing_subscriber::fmt::init();
+
     setup_namespaces()?;
 
     let engine = Engine::new(&PathBuf::from("/"))?;
     let server = Server { engine: engine.into() };
 
-    let _conn = ConnectionBuilder::system()?.name("dev.rlxos.updates")?.serve_at("/dev/rlxos/updates", server)?.build().await?;
+    let _conn = ConnectionBuilder::system()?.name(INTERFACE_NAME)?.serve_at(OBJECT_PATH, server)?.build().await?;
 
-    println!("listening...");
+    info!("listening at {} {}", INTERFACE_NAME, OBJECT_PATH);
     pending::<()>().await;
     Ok(())
 }
 
-pub fn setup_namespaces() -> Result<(), updatectl::Error> {
+pub fn setup_namespaces() -> Result<(), updates::Error> {
+    debug!("Checking permissions");
     if nix::unistd::getegid().as_raw() != 0 {
-        return Err(updatectl::Error::PermissionDenied("need superuser access".to_string()));
+        return Err(updates::Error::PermissionDenied("need superuser access".to_string()));
     }
 
+    info!("Setting up namespaces");
     match unsafe { syscalls::syscall!(syscalls::Sysno::unshare, 0x00020000) } {
-        Err(error) => return Err(updatectl::Error::FailedSetupNamespace(error)),
+        Err(error) => return Err(updates::Error::FailedSetupNamespace(error)),
         Ok(_) => {}
     };
 
