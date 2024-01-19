@@ -1,9 +1,11 @@
 use std::env;
 
-use ostree::{Deployment, ObjectType, Repo};
 use ostree::glib::{GString, VariantDict, VariantTy};
+use ostree::{Deployment, ObjectType, Repo};
 
 use crate::Error;
+
+use tracing::info;
 
 #[derive(Debug, Clone)]
 pub struct RefState {
@@ -15,29 +17,40 @@ pub struct RefState {
 pub struct State {
     pub core: RefState,
     pub merged: bool,
-    pub extensions: Option<Vec<RefState>>,
+    pub extensions: Vec<RefState>,
 }
-
 
 impl State {
     pub fn options(&self) -> (VariantDict, String) {
         let options = VariantDict::new(None);
-        let extensions_string: String = "".to_string();
+        let mut extensions_string: String = "".to_string();
         options.insert("rlxos.revision.core", &self.core.revision);
         if self.merged {
-            if let Some(extensions) = &self.extensions {
-                for extension in extensions {
-                    let extension_id = extension.refspec.to_string().split("/").map(|s| s.to_string()).collect::<Vec<String>>()[2].clone();
-                    options.insert(&format!("rlxos.revision.{}", extension_id), &extension.revision);
-                }
+            for extension in self.extensions.iter() {
+                let extension_id = extension
+                    .refspec
+                    .to_string()
+                    .split("/")
+                    .map(|s| s.to_string())
+                    .collect::<Vec<String>>()[2]
+                    .clone();
+                extensions_string.push_str(&format!("{extension_id};"));
+                options.insert(
+                    &format!("rlxos.revision.{}", extension_id),
+                    &extension.revision,
+                );
             }
         }
         (options, extensions_string)
     }
 
     pub fn channel(&self) -> String {
-        self.core.refspec.to_string().split("/")
-            .map(|s| s.to_string()).collect::<Vec<String>>()
+        self.core
+            .refspec
+            .to_string()
+            .split("/")
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>()
             .last()
             .unwrap()
             .to_string()
@@ -46,41 +59,48 @@ impl State {
     pub fn add_extension(&mut self, extension: &str) {
         let extension = match extension.contains("/extension/") {
             true => extension.to_string(),
-            false => format!("rlxos:{}/extension/{}/{}", env::consts::ARCH, extension, self.channel()),
+            false => format!(
+                "rlxos:{}/extension/{}/{}",
+                env::consts::ARCH,
+                extension,
+                self.channel()
+            ),
         };
-        if let Some(ref mut extensions) = self.extensions {
-            if !extensions.iter().find(|v| {
-                v.refspec == extension
-            }).is_none() {
-                extensions.push(RefState {
-                    refspec: extension,
-                    revision: "".into(),
-                })
-            }
-        } else {
-            let mut extensions: Vec<RefState> = Vec::new();
-            extensions.push(RefState {
-                refspec: extension,
-                revision: "".into(),
-            });
-            self.extensions = Some(extensions);
-        }
+
+        // info!("formated extension: {}", extension);
+        // if !self
+        //     .extensions
+        //     .iter()
+        //     .filter(|v| v.refspec == extension)
+        //     .count() == 0
+        // {
+        //     info!("Setting extension: {}", extension);
+
+        // }
+        self.extensions.push(RefState {
+            refspec: extension.clone(),
+            revision: "".into(),
+        })
     }
 
-    pub fn switch_channel(&self, channel: &str) -> State {
+    pub fn switch_channel(&mut self, channel: &str) -> State {
         let mut new_state = self.clone();
         let old_channel = self.channel();
         new_state.core.refspec = new_state.core.refspec.replace(&old_channel, channel);
-        if let Some(ref mut extensions) = new_state.extensions {
-            for extension in extensions {
-                extension.refspec = extension.refspec.replace(&old_channel, channel);
-            }
+        new_state.core.revision = "".to_string();
+
+        for extension in self.extensions.iter_mut() {
+            extension.refspec = extension.refspec.replace(&old_channel, channel);
+            extension.revision = "".to_string();
         }
         new_state
     }
     pub fn for_deployment(repo: &Repo, deployment: &Deployment) -> Result<State, Error> {
         let origin = deployment.origin().unwrap();
-        let refspec = origin.string("origin", "refspec").unwrap_or_else(|_| { "rlxos:x86_64/os/stable".into() }).to_string();
+        let refspec = origin
+            .string("origin", "refspec")
+            .unwrap_or_else(|_| "rlxos:x86_64/os/stable".into())
+            .to_string();
         let revision = deployment.csum().to_string();
         let merged = origin.boolean("rlxos", "merged").unwrap_or_else(|_| false);
 
@@ -88,28 +108,49 @@ impl State {
             return Ok(State {
                 core: RefState { refspec, revision },
                 merged,
-                extensions: None,
+                extensions: Vec::new(),
             });
         }
 
-        let channel = origin.string("rlxos", "channel").unwrap_or_else(|_| "stable".into()).to_string();
+        let channel = origin
+            .string("rlxos", "channel")
+            .unwrap_or_else(|_| "stable".into())
+            .to_string();
 
-        let refspec = format!("{}:{}/os/{}", deployment.osname(), env::consts::ARCH, channel);
+        let refspec = format!(
+            "{}:{}/os/{}",
+            deployment.osname(),
+            env::consts::ARCH,
+            channel
+        );
 
         let commit = repo.load_variant(ObjectType::Commit, &revision)?;
         let commit_metadata = VariantDict::new(Some(&commit.child_value(0)));
 
         let revision = get_revision(&commit_metadata, "core");
 
-
-        let extensions_refspec: Vec<String> = origin.string("rlxos", "extensions").unwrap_or_else(|_| GString::from("")).to_string().split(";").map(|s| s.to_string()).collect();
+        let extensions_refspec: Vec<String> = origin
+            .string("rlxos", "extensions")
+            .unwrap_or_else(|_| GString::from(""))
+            .to_string()
+            .split(";")
+            .map(|s| s.to_string())
+            .collect();
         let mut extensions: Vec<RefState> = Vec::new();
         for ext in extensions_refspec.clone() {
+            if ext.is_empty() {
+                continue;
+            }
             // Skip previous extensions
             if ext.contains("/extension/") {
                 continue;
             }
-            let ext_refspec = format!("{}:{}/extension/{}", deployment.osname(), env::consts::ARCH, channel);
+            let ext_refspec = format!(
+                "{}:{}/extension/{}",
+                deployment.osname(),
+                env::consts::ARCH,
+                channel
+            );
             let ext_revision = get_revision(&commit_metadata, &ext);
             extensions.push(RefState {
                 refspec: ext_refspec,
@@ -120,13 +161,16 @@ impl State {
         Ok(State {
             core: RefState { refspec, revision },
             merged,
-            extensions: Some(extensions),
+            extensions: extensions,
         })
     }
 }
 
 fn get_revision(metadata: &VariantDict, id: &str) -> String {
-    match metadata.lookup_value(format!("rlxos.revision.{}", id).as_str(), Some(&VariantTy::STRING)) {
+    match metadata.lookup_value(
+        format!("rlxos.revision.{}", id).as_str(),
+        Some(&VariantTy::STRING),
+    ) {
         Some(variant) => variant.get::<String>().unwrap(),
         None => "".into(),
     }

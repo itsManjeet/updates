@@ -1,9 +1,10 @@
 use std::{env, ptr};
 
-use ostree::{ffi, gio, glib, MutableTree, RepoFile, Sysroot, SysrootSimpleWriteDeploymentFlags};
 use ostree::gio::Cancellable;
-use ostree::glib::{Cast, IsA, KeyFile, ToVariant, VariantDict};
 use ostree::glib::translate::{from_glib_full, ToGlibPtr};
+use ostree::glib::{Cast, IsA, KeyFile, ToVariant, VariantDict};
+use ostree::{ffi, gio, glib, MutableTree, RepoFile, Sysroot, SysrootSimpleWriteDeploymentFlags};
+use tracing::info;
 
 use crate::engine::state::State;
 use crate::Error;
@@ -13,6 +14,7 @@ pub fn deploy(
     state: &State,
     cancellable: Option<&Cancellable>,
 ) -> Result<(), Error> {
+    info!("deploying state {:?}", state);
     let osname = match sysroot.booted_deployment() {
         Some(deployment) => deployment.osname(),
         None => "rlxos".into(),
@@ -30,13 +32,10 @@ pub fn deploy(
         repo.prepare_transaction(cancellable)?;
         let mutable_tree = MutableTree::from_commit(&repo, &state.core.revision)?;
 
-        if let Some(extensions) = &state.extensions {
-            for extension in extensions {
-                let (object_to_commit, _) = repo.read_commit(&extension.refspec, cancellable)?;
-                repo.write_directory_to_mtree(&object_to_commit, &mutable_tree, None, cancellable)?;
-            }
+        for extension in &state.extensions {
+            let (object_to_commit, _) = repo.read_commit(&extension.refspec, cancellable)?;
+            repo.write_directory_to_mtree(&object_to_commit, &mutable_tree, None, cancellable)?;
         }
-
 
         let root = repo.write_mtree(&mutable_tree, cancellable)?;
         let boot_meta = VariantDict::new(None);
@@ -56,12 +55,27 @@ pub fn deploy(
         repo.transaction_set_ref(None, &deployment_refspec, Some(&commit_checksum));
         let _stats = repo.commit_transaction(cancellable)?;
 
-        revision = repo.resolve_rev(&deployment_refspec, false)?.unwrap().to_string();
+        revision = repo
+            .resolve_rev(&deployment_refspec, false)?
+            .unwrap()
+            .to_string();
 
         origin = sysroot.origin_new_from_refspec(&deployment_refspec);
         origin.set_string("rlxos", "extensions", &extensions);
         origin.set_boolean("rlxos", "merged", true);
-        origin.set_string("rlxos", "channel", &state.core.refspec.to_string().split("/").map(|s| s.to_string()).collect::<Vec<String>>().last().unwrap())
+        origin.set_string(
+            "rlxos",
+            "channel",
+            &state
+                .core
+                .refspec
+                .to_string()
+                .split("/")
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>()
+                .last()
+                .unwrap(),
+        )
     } else {
         revision = state.core.revision.clone();
         origin = sysroot.origin_new_from_refspec(&state.core.refspec);
@@ -80,6 +94,8 @@ pub fn deploy(
         Some(&opts),
         cancellable,
     )?;
+
+    info!("Writing deployment");
     let flags = SysrootSimpleWriteDeploymentFlags::NO_CLEAN;
     sysroot.simple_write_deployment(
         Some(&osname),
@@ -89,10 +105,10 @@ pub fn deploy(
         cancellable,
     )?;
 
+    info!("Cleaning up");
     sysroot.cleanup(cancellable)?;
     Ok(())
 }
-
 
 fn commit_metadata_for_bootable(
     root: &impl IsA<gio::File>,

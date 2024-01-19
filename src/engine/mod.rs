@@ -1,17 +1,18 @@
 use std::path::PathBuf;
 
-use ostree::{AsyncProgress, gio::File, Sysroot};
 use ostree::gio::Cancellable;
 use ostree::glib::{Variant, VariantTy};
+use ostree::{gio::File, AsyncProgress, Sysroot};
+use tracing::info;
 
 use crate::engine::deploy::deploy;
 use crate::engine::pull::pull;
 use crate::engine::state::State;
 use crate::Error;
 
-mod state;
-mod pull;
 mod deploy;
+mod pull;
+mod state;
 
 #[derive(Debug)]
 pub struct Engine {
@@ -69,7 +70,14 @@ impl Engine {
         cancellable: Option<&Cancellable>,
     ) -> Result<(bool, String), Error> {
         let current_state = self.state()?.clone();
-        let (changed, changelog, _) = pull(&self.sysroot.repo(), &current_state, None, true, progress, cancellable)?;
+        let (changed, changelog, _) = pull(
+            &self.sysroot.repo(),
+            &current_state,
+            None,
+            true,
+            progress,
+            cancellable,
+        )?;
         Ok((changed, changelog))
     }
 
@@ -79,7 +87,14 @@ impl Engine {
         cancellable: Option<&Cancellable>,
     ) -> Result<bool, Error> {
         let current_state = self.state()?;
-        let (changed, _, state) = pull(&self.sysroot.repo(), &current_state, None, false, progress, cancellable)?;
+        let (changed, _, state) = pull(
+            &self.sysroot.repo(),
+            &current_state,
+            None,
+            false,
+            progress,
+            cancellable,
+        )?;
         if changed {
             deploy(&self.sysroot, &state, cancellable)?;
         }
@@ -92,9 +107,17 @@ impl Engine {
         progress: Option<&AsyncProgress>,
         cancellable: Option<&Cancellable>,
     ) -> Result<bool, Error> {
-        let current_state = self.state()?;
-        let current_state = current_state.switch_channel(channel);
-        let (changed, _, state) = pull(&self.sysroot.repo(), &current_state, None, false, progress, cancellable)?;
+        let updated_state = self.state()?.clone().switch_channel(channel);
+        info!("Updated state: {:?}", updated_state);
+
+        let (changed, _, state) = pull(
+            &self.sysroot.repo(),
+            &updated_state,
+            None,
+            false,
+            progress,
+            cancellable,
+        )?;
         if changed {
             deploy(&self.sysroot, &state, cancellable)?;
         }
@@ -107,10 +130,15 @@ impl Engine {
         progress: Option<&AsyncProgress>,
         cancellable: Option<&Cancellable>,
     ) -> Result<bool, Error> {
-        let current_state = self.state()?;
-        let mut current_state = current_state.switch_channel(channel);
-        current_state.extensions = None;
-        let (changed, _, state) = pull(&self.sysroot.repo(), &current_state, None, false, progress, cancellable)?;
+        let updated_state = self.state()?.clone().switch_channel(channel);
+        let (changed, _, state) = pull(
+            &self.sysroot.repo(),
+            &updated_state,
+            None,
+            false,
+            progress,
+            cancellable,
+        )?;
         if changed {
             deploy(&self.sysroot, &state, cancellable)?;
         }
@@ -123,13 +151,24 @@ impl Engine {
         progress: Option<&AsyncProgress>,
         cancellable: Option<&Cancellable>,
     ) -> Result<bool, Error> {
-        let current_state = self.state()?;
-        let mut current_state = current_state.clone();
-        for extension in extensions {
-            current_state.add_extension(&extension);
+        info!("Current State: {:?}", self.state()?);
+        let mut updated_state = self.state()?.clone();
+        for extension in extensions.iter() {
+            if !extension.is_empty() {
+                updated_state.add_extension(extension);
+            }
         }
 
-        let (changed, _, state) = pull(&self.sysroot.repo(), &current_state, None, false, progress, cancellable)?;
+        info!("Updated State: {:?}", updated_state);
+
+        let (changed, _, state) = pull(
+            &self.sysroot.repo(),
+            &updated_state,
+            None,
+            false,
+            progress,
+            cancellable,
+        )?;
         if changed {
             deploy(&self.sysroot, &state, cancellable)?;
         }

@@ -1,24 +1,55 @@
+use std::error::Error as OtherError;
 use std::fmt::Debug;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
-use zbus::{dbus_interface, DBusError};
 use ostree::gio::Cancellable;
+use tracing::info;
+use zbus::{dbus_interface, DBusError};
+
 use crate::engine::Engine;
+
+#[derive(Debug, Clone)]
+pub enum Status {
+    Idle,
+    Checking,
+    Deploying,
+}
 
 #[derive(Debug)]
 pub struct Server {
-    pub engine: Mutex<Engine>,
+    engine: Mutex<Engine>,
+    status: Status,
+}
+
+impl Server {
+    pub fn new() -> Result<Server, Error> {
+        Ok(Server {
+            engine: Engine::new(&PathBuf::from("/"))?.into(),
+            status: Status::Idle,
+        })
+    }
 }
 
 #[dbus_interface(name = "dev.rlxos.updates")]
 impl Server {
+    #[dbus_interface(property)]
+    async fn status(&self) -> Status {
+        self.status.clone()
+    }
+
     async fn check(&mut self) -> Result<(bool, String), Error> {
+        if self.status != Status::Idle {
+            return Err(Error::EngineIsBusy);
+        }
+
         if let Ok(engine) = self.engine.lock() {
             engine.lock()?;
 
+            self.status = Status::Checking;
             let result = engine.check(None, Cancellable::NONE);
             engine.unlock();
-
+            self.status = Status::Idle;
             let (changed, changelog) = result?;
 
             Ok((changed, changelog))
@@ -28,10 +59,16 @@ impl Server {
     }
 
     async fn apply(&mut self) -> Result<bool, Error> {
+        if self.status != Status::Idle {
+            return Err(Error::EngineIsBusy);
+        }
+
         if let Ok(engine) = self.engine.lock() {
             engine.lock()?;
 
+            self.status = Status::Deploying;
             let result = engine.apply(None, Cancellable::NONE);
+            self.status = Status::Idle;
 
             engine.unlock();
 
@@ -48,10 +85,8 @@ impl Server {
             let mut result: Vec<((String, String), Vec<(String, String)>)> = Vec::new();
             for state in engine.states()? {
                 let mut extensions_list: Vec<(String, String)> = Vec::new();
-                if let Some(extensions) = &state.extensions {
-                    for extension in extensions {
-                        extensions_list.push((extension.refspec.clone(), extension.revision.clone()));
-                    }
+                for extension in state.extensions {
+                    extensions_list.push((extension.refspec.clone(), extension.revision.clone()));
                 }
 
                 result.push(((state.core.refspec.clone(), state.core.revision.clone()), extensions_list));
@@ -63,10 +98,16 @@ impl Server {
     }
 
     async fn switch(&mut self, channel: &str) -> Result<bool, Error> {
+        if self.status != Status::Idle {
+            return Err(Error::EngineIsBusy);
+        }
+
         if let Ok(engine) = self.engine.lock() {
             engine.lock()?;
 
+            self.status = Status::Deploying;
             let result = engine.switch(channel, None, Cancellable::NONE);
+            self.status = Status::Idle;
 
             engine.unlock();
 
@@ -79,10 +120,16 @@ impl Server {
     }
 
     async fn reset(&mut self, channel: &str) -> Result<bool, Error> {
+        if self.status != Status::Idle {
+            return Err(Error::EngineIsBusy);
+        }
+
         if let Ok(engine) = self.engine.lock() {
             engine.lock()?;
 
+            self.status = Status::Deploying;
             let result = engine.reset(channel, None, Cancellable::NONE);
+            self.status = Status::Idle;
 
             engine.unlock();
 
@@ -95,10 +142,17 @@ impl Server {
     }
 
     async fn add_extension(&mut self, extensions: Vec<String>) -> Result<bool, Error> {
+        if self.status != Status::Idle {
+            return Err(Error::EngineIsBusy);
+        }
+
         if let Ok(engine) = self.engine.lock() {
             engine.lock()?;
+            info!("Adding extensions: {:?}", extensions);
 
+            self.status = Status::Deploying;
             let result = engine.add_extension(extensions, None, Cancellable::NONE);
+            self.status = Status::Idle;
 
             engine.unlock();
 
@@ -128,6 +182,22 @@ pub enum Error {
 
 impl From<crate::Error> for Error {
     fn from(value: crate::Error) -> Self {
-        Error::Engine(value.to_string())
+        Error::Engine(get_error_str(value))
     }
+}
+
+fn get_error_str(error: crate::Error) -> String {
+    let sources = sources(&error);
+    let error = sources.join(": ");
+    format!("ERROR: {error}")
+}
+
+fn sources(error: &crate::Error) -> Vec<String> {
+    let mut sources = vec![error.to_string()];
+    let mut source = error.source();
+    while let Some(error) = source.take() {
+        sources.push(error.to_string());
+        source = error.source();
+    }
+    sources
 }

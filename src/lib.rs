@@ -3,8 +3,6 @@ use thiserror::Error;
 pub mod progress;
 pub mod server;
 pub mod engine;
-pub mod window;
-
 
 #[derive(Debug, Error)]
 pub enum Error {

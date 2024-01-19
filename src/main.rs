@@ -1,12 +1,11 @@
 use std::error::Error;
 use std::future::pending;
-use std::path::PathBuf;
 use std::string::ToString;
-use tracing::{debug, info};
 
+use tracing::{debug, info};
 use zbus::ConnectionBuilder;
 
-use updates::{engine::Engine, server::Server};
+use updates::server::Server;
 
 const INTERFACE_NAME: &str = "dev.rlxos.updates";
 const OBJECT_PATH: &str = "/dev/rlxos/updates";
@@ -17,8 +16,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     setup_namespaces()?;
 
-    let engine = Engine::new(&PathBuf::from("/"))?;
-    let server = Server { engine: engine.into() };
+    let server = Server::new()?;
 
     let _conn = ConnectionBuilder::system()?.name(INTERFACE_NAME)?.serve_at(OBJECT_PATH, server)?.build().await?;
 
