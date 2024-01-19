@@ -16,6 +16,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+    - name: prerequisites
+      run: sudo apt install -y libostree-dev
     - name: Build
       run: cargo build --verbose
     - name: Run tests
