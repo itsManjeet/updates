@@ -1,0 +1,10 @@
+[Unit]
+Description=System updates server
+
+[Service]
+ExecStart=@libexecdir@/dev.rlxos.updates
+BusName=dev.rlxos.updates
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
