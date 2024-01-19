@@ -9,11 +9,12 @@ use zbus::{dbus_interface, DBusError};
 
 use crate::engine::Engine;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[repr(u8)]
 pub enum Status {
-    Idle,
-    Checking,
-    Deploying,
+    Idle = 0,
+    Checking = 1,
+    Deploying = 2,
 }
 
 #[derive(Debug)]
@@ -34,8 +35,8 @@ impl Server {
 #[dbus_interface(name = "dev.rlxos.updates")]
 impl Server {
     #[dbus_interface(property)]
-    async fn status(&self) -> Status {
-        self.status.clone()
+    async fn status(&self) -> u8 {
+        self.status as u8
     }
 
     async fn check(&mut self) -> Result<(bool, String), Error> {
