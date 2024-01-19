@@ -118,9 +118,10 @@ impl State {
                 continue;
             }
             let ext_refspec = format!(
-                "{}:{}/extension/{}",
+                "{}:{}/extension/{}/{}",
                 deployment.osname(),
                 env::consts::ARCH,
+                ext,
                 channel
             );
             let ext_revision = get_revision(&commit_metadata, &ext);
