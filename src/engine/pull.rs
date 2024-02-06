@@ -1,7 +1,7 @@
-use ostree::{AsyncProgress, Repo, RepoPullFlags};
 use ostree::gio::Cancellable;
 use ostree::glib::VariantDict;
 use ostree::prelude::*;
+use ostree::{AsyncProgress, Repo, RepoPullFlags};
 use tracing::info;
 
 use crate::engine::state::{RefState, State};
@@ -22,7 +22,7 @@ pub fn pull(
         None => match origin_remote {
             Some(remote) => remote.to_string(),
             None => "rlxos".to_string(),
-        }
+        },
     };
     refs.push(origin_refspec.to_string());
 
@@ -56,7 +56,8 @@ pub fn pull(
         revision: state.core.revision.clone(),
     };
 
-    let (core_updated, core_revision, core_changelog) = get_changelog(&repo, &state.core.refspec, &state.core.revision)?;
+    let (core_updated, core_revision, core_changelog) =
+        get_changelog(&repo, &state.core.refspec, &state.core.revision)?;
     if core_updated {
         changed = true;
         changelog.push_str(&core_changelog);
@@ -66,7 +67,8 @@ pub fn pull(
     let mut changed_extensions: Vec<RefState> = Vec::new();
 
     for extension in &state.extensions {
-        let (extension_updated, extension_revision, extension_changelog) = get_changelog(&repo, &extension.refspec, &extension.revision)?;
+        let (extension_updated, extension_revision, extension_changelog) =
+            get_changelog(&repo, &extension.refspec, &extension.revision)?;
         if extension_updated {
             changed = true;
             changelog.push_str(format!("\n{}", extension_changelog).as_str());
@@ -77,14 +79,23 @@ pub fn pull(
         });
     }
 
-    Ok((changed, changelog, State {
-        core: changed_core,
-        merged: state.merged,
-        extensions: changed_extensions,
-    }))
+    
+    Ok((
+        changed,
+        changelog,
+        State {
+            core: changed_core,
+            merged: state.merged,
+            extensions: changed_extensions,
+        },
+    ))
 }
 
-fn get_changelog(repo: &Repo, refspec: &str, old_revision: &str) -> Result<(bool, String, String), Error> {
+fn get_changelog(
+    repo: &Repo,
+    refspec: &str,
+    old_revision: &str,
+) -> Result<(bool, String, String), Error> {
     info!("Getting changelog for {}", refspec);
     let updated_revision = match repo.resolve_rev(refspec, false)? {
         Some(revision) => revision,
@@ -97,8 +108,25 @@ fn get_changelog(repo: &Repo, refspec: &str, old_revision: &str) -> Result<(bool
     info!("Updated revision {}", updated_revision);
 
     let commit = repo.load_variant(ostree::ObjectType::Commit, &updated_revision)?;
-    let subject = commit.child_value(3).get::<String>().unwrap_or_else(|| "".into());
-    let body = commit.child_value(4).get::<String>().unwrap_or_else(|| "".into());
+    let subject = commit
+        .child_value(3)
+        .get::<String>()
+        .unwrap_or_else(|| "".into());
+    let body = commit
+        .child_value(4)
+        .get::<String>()
+        .unwrap_or_else(|| "".into());
 
-    Ok((true, updated_revision.to_string(), format!("{}: {}\n{}\nrev: {} -> {}\n", refspec, subject.trim(), body.trim(), old_revision, updated_revision)))
+    Ok((
+        true,
+        updated_revision.to_string(),
+        format!(
+            "{}: {}\n{}\nrev: {} -> {}\n",
+            refspec,
+            subject.trim(),
+            body.trim(),
+            old_revision,
+            updated_revision
+        ),
+    ))
 }

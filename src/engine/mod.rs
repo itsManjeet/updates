@@ -78,6 +78,7 @@ impl Engine {
             progress,
             cancellable,
         )?;
+        self.sysroot.cleanup(cancellable)?;
         Ok((changed, changelog))
     }
 
@@ -95,6 +96,7 @@ impl Engine {
             progress,
             cancellable,
         )?;
+        self.sysroot.cleanup(cancellable)?;
         if changed {
             deploy(&self.sysroot, &state, cancellable)?;
         }

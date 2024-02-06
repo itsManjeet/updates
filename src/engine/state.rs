@@ -1,7 +1,7 @@
 use std::env;
 
-use ostree::{Deployment, ObjectType, Repo};
 use ostree::glib::{GString, VariantDict, VariantTy};
+use ostree::{Deployment, ObjectType, Repo};
 
 use crate::Error;
 
@@ -25,7 +25,13 @@ impl State {
         options.insert("rlxos.revision.core", &self.core.revision);
         if self.merged {
             for extension in self.extensions.iter() {
-                let extension_id = extension.refspec.to_string().split("/").map(|s| s.to_string()).collect::<Vec<String>>()[2].clone();
+                let extension_id = extension
+                    .refspec
+                    .to_string()
+                    .split("/")
+                    .map(|s| s.to_string())
+                    .collect::<Vec<String>>()[2]
+                    .clone();
                 extensions_string.push_str(&format!("{extension_id};"));
                 options.insert(
                     &format!("rlxos.revision.{}", extension_id),
@@ -37,7 +43,15 @@ impl State {
     }
 
     pub fn channel(&self) -> String {
-        self.core.refspec.to_string().split("/").map(|s| s.to_string()).collect::<Vec<String>>().last().unwrap().to_string()
+        self.core
+            .refspec
+            .to_string()
+            .split("/")
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>()
+            .last()
+            .unwrap()
+            .to_string()
     }
 
     pub fn add_extension(&mut self, extension: &str) {
@@ -81,7 +95,10 @@ impl State {
     }
     pub fn for_deployment(repo: &Repo, deployment: &Deployment) -> Result<State, Error> {
         let origin = deployment.origin().unwrap();
-        let refspec = origin.string("origin", "refspec").unwrap_or_else(|_| "rlxos:x86_64/os/stable".into()).to_string();
+        let refspec = origin
+            .string("origin", "refspec")
+            .unwrap_or_else(|_| "rlxos:x86_64/os/stable".into())
+            .to_string();
         let revision = deployment.csum().to_string();
         let merged = origin.boolean("rlxos", "merged").unwrap_or_else(|_| false);
 
@@ -93,7 +110,10 @@ impl State {
             });
         }
 
-        let channel = origin.string("rlxos", "channel").unwrap_or_else(|_| "stable".into()).to_string();
+        let channel = origin
+            .string("rlxos", "channel")
+            .unwrap_or_else(|_| "stable".into())
+            .to_string();
 
         let refspec = format!(
             "{}:{}/os/{}",
@@ -107,7 +127,13 @@ impl State {
 
         let revision = get_revision(&commit_metadata, "core");
 
-        let extensions_refspec: Vec<String> = origin.string("rlxos", "extensions").unwrap_or_else(|_| GString::from("")).to_string().split(";").map(|s| s.to_string()).collect();
+        let extensions_refspec: Vec<String> = origin
+            .string("rlxos", "extensions")
+            .unwrap_or_else(|_| GString::from(""))
+            .to_string()
+            .split(";")
+            .map(|s| s.to_string())
+            .collect();
         let mut extensions: Vec<RefState> = Vec::new();
         for ext in extensions_refspec.clone() {
             if ext.is_empty() {

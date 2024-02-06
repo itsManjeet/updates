@@ -90,7 +90,10 @@ impl Server {
                     extensions_list.push((extension.refspec.clone(), extension.revision.clone()));
                 }
 
-                result.push(((state.core.refspec.clone(), state.core.revision.clone()), extensions_list));
+                result.push((
+                    (state.core.refspec.clone(), state.core.revision.clone()),
+                    extensions_list,
+                ));
             }
             Ok(result)
         } else {

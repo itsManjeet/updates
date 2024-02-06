@@ -18,7 +18,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let server = Server::new()?;
 
-    let _conn = ConnectionBuilder::system()?.name(INTERFACE_NAME)?.serve_at(OBJECT_PATH, server)?.build().await?;
+    let _conn = ConnectionBuilder::system()?
+        .name(INTERFACE_NAME)?
+        .serve_at(OBJECT_PATH, server)?
+        .build()
+        .await?;
 
     info!("listening at {} {}", INTERFACE_NAME, OBJECT_PATH);
     pending::<()>().await;
@@ -28,7 +32,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 pub fn setup_namespaces() -> Result<(), updates::Error> {
     debug!("Checking permissions");
     if nix::unistd::getegid().as_raw() != 0 {
-        return Err(updates::Error::PermissionDenied("need superuser access".to_string()));
+        return Err(updates::Error::PermissionDenied(
+            "need superuser access".to_string(),
+        ));
     }
 
     info!("Setting up namespaces");

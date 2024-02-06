@@ -1,14 +1,26 @@
-use std::io::Write;
 use humansize::{format_size, DECIMAL};
+use std::io::Write;
 // use humantime::format_duration;
 use ostree::AsyncProgress;
 // use std::time::Duration;
 
 pub fn update_callback(p: &AsyncProgress) {
     let mut message = String::new();
-    let outstanding_fetches = p.variant("outstanding-fetches").unwrap().get::<u32>().unwrap();
-    let outstanding_metadata_fetches = p.variant("outstanding-metadata-fetches").unwrap().get::<u32>().unwrap();
-    let outstanding_writes = p.variant("outstanding-writes").unwrap().get::<u32>().unwrap();
+    let outstanding_fetches = p
+        .variant("outstanding-fetches")
+        .unwrap()
+        .get::<u32>()
+        .unwrap();
+    let outstanding_metadata_fetches = p
+        .variant("outstanding-metadata-fetches")
+        .unwrap()
+        .get::<u32>()
+        .unwrap();
+    let outstanding_writes = p
+        .variant("outstanding-writes")
+        .unwrap()
+        .get::<u32>()
+        .unwrap();
     let caught_error = p.variant("caught-error").unwrap().get::<bool>().unwrap();
     let scanning = p.variant("scanning").unwrap().get::<u32>().unwrap();
     let scanned_metadata = p.variant("scanned-metadata").unwrap().get::<u32>().unwrap();
@@ -25,9 +37,12 @@ pub fn update_callback(p: &AsyncProgress) {
     } else if caught_error {
         message.push_str("caught error, waiting for outstanding tasks");
     } else if outstanding_fetches > 0 {
-
         let current_time = ostree::glib::monotonic_time() as i64;
-        let bytes_transferred = p.variant("bytes-transferred").unwrap().get::<u64>().unwrap();
+        let bytes_transferred = p
+            .variant("bytes-transferred")
+            .unwrap()
+            .get::<u64>()
+            .unwrap();
         let fetched = p.variant("fetched").unwrap().get::<u32>().unwrap();
         let metadata_fetched = p.variant("metadata-fetched").unwrap().get::<u32>().unwrap();
         let requested = p.variant("requested").unwrap().get::<u32>().unwrap();
@@ -44,7 +59,9 @@ pub fn update_callback(p: &AsyncProgress) {
             // bytes_sec = 0;
             formatted_bytes_sec = String::from("-");
         } else {
-            bytes_sec = (bytes_transferred as f64 / ((current_time - start_time) as f64 / 10_00_000f64)) as u64;
+            bytes_sec = (bytes_transferred as f64
+                / ((current_time - start_time) as f64 / 10_00_000f64))
+                as u64;
             formatted_bytes_sec = format_size(bytes_sec, DECIMAL);
         }
 
