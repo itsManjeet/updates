@@ -1,8 +1,8 @@
 use thiserror::Error;
 
+pub mod cmd;
 pub mod engine;
 pub mod progress;
-pub mod server;
 
 #[derive(Debug, Error)]
 pub enum Error {

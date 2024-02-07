@@ -14,6 +14,14 @@ mod deploy;
 mod pull;
 mod state;
 
+pub enum RefData {
+    Remote,
+    Arch,
+    Type,
+    Id,
+    Channel,
+}
+
 #[derive(Debug)]
 pub struct Engine {
     sysroot: Sysroot,
@@ -66,13 +74,13 @@ impl Engine {
 
     pub fn check(
         &self,
+        state: &State,
         progress: Option<&AsyncProgress>,
         cancellable: Option<&Cancellable>,
     ) -> Result<(bool, String), Error> {
-        let current_state = self.state()?.clone();
         let (changed, changelog, _) = pull(
             &self.sysroot.repo(),
-            &current_state,
+            &state,
             None,
             true,
             progress,
@@ -84,13 +92,13 @@ impl Engine {
 
     pub fn apply(
         &self,
+        state: &State,
         progress: Option<&AsyncProgress>,
         cancellable: Option<&Cancellable>,
     ) -> Result<bool, Error> {
-        let current_state = self.state()?;
         let (changed, _, state) = pull(
             &self.sysroot.repo(),
-            &current_state,
+            &state,
             None,
             false,
             progress,
@@ -206,5 +214,21 @@ impl Engine {
         }
 
         Ok(refs)
+    }
+
+    pub fn add_overlay(&self) -> Result<(), Error> {
+        if let Some(deployment) = self.sysroot.booted_deployment() {
+            if deployment.unlocked() != ostree::DeploymentUnlockedState::None {
+                println!("safe mutable overlay already applied");
+                return Ok(());
+            }
+            self.sysroot.deployment_unlock(
+                &deployment,
+                ostree::DeploymentUnlockedState::Development,
+                Cancellable::NONE,
+            )?;
+        }
+
+        Ok(())
     }
 }

@@ -4,6 +4,13 @@ use std::io::Write;
 use ostree::AsyncProgress;
 // use std::time::Duration;
 
+pub fn get() -> AsyncProgress {
+    let progress = AsyncProgress::new();
+    progress.connect_changed(crate::progress::update_callback);
+
+    progress
+}
+
 pub fn update_callback(p: &AsyncProgress) {
     let mut message = String::new();
     let outstanding_fetches = p

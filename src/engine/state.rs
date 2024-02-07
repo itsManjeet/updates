@@ -3,12 +3,39 @@ use std::env;
 use ostree::glib::{GString, VariantDict, VariantTy};
 use ostree::{Deployment, ObjectType, Repo};
 
-use crate::Error;
+use crate::{Error, engine::RefData};
 
 #[derive(Debug, Clone)]
 pub struct RefState {
     pub refspec: String,
     pub revision: String,
+}
+
+impl RefState {
+    pub fn get_data(&self, t: RefData) -> String {
+        let data = self
+            .refspec
+            .split(':')
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>();
+        let (remote, remaining) = match data.len() {
+            2 => (data[0].clone(), data[1].clone()),
+            _ => ("".to_string(), data[0].clone()),
+        };
+
+        let data = remaining
+            .split('/')
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>();
+
+        match t {
+            RefData::Remote => remote,
+            RefData::Arch => data[0].clone(),
+            RefData::Type => data[1].clone(),
+            RefData::Id => data[data.len() - 1].clone(),
+            RefData::Channel => data.last().unwrap().to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
