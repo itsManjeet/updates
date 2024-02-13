@@ -3,7 +3,7 @@ use std::env;
 use ostree::glib::{GString, VariantDict, VariantTy};
 use ostree::{Deployment, ObjectType, Repo};
 
-use crate::{Error, engine::RefData};
+use crate::{engine::RefData, Error};
 
 #[derive(Debug, Clone)]
 pub struct RefState {
@@ -40,6 +40,7 @@ impl RefState {
 
 #[derive(Debug, Clone)]
 pub struct State {
+    pub revision: String,
     pub core: RefState,
     pub merged: bool,
     pub extensions: Vec<RefState>,
@@ -108,29 +109,26 @@ impl State {
         })
     }
 
-    pub fn switch_channel(&mut self, channel: &str) -> State {
-        let mut new_state = self.clone();
+    pub fn switch_channel(&mut self, channel: &str) {
         let old_channel = self.channel();
-        new_state.core.refspec = new_state.core.refspec.replace(&old_channel, channel);
-        new_state.core.revision = "".to_string();
+        println!("{} -> {}", old_channel, channel);
+        self.core.refspec = self.core.refspec.replace(&old_channel, channel);
+        self.core.revision = "".to_string();
 
         for extension in self.extensions.iter_mut() {
             extension.refspec = extension.refspec.replace(&old_channel, channel);
             extension.revision = "".to_string();
         }
-        new_state
     }
     pub fn for_deployment(repo: &Repo, deployment: &Deployment) -> Result<State, Error> {
         let origin = deployment.origin().unwrap();
-        let refspec = origin
-            .string("origin", "refspec")
-            .unwrap_or_else(|_| "rlxos:x86_64/os/stable".into())
-            .to_string();
+        let refspec = origin.string("origin", "refspec")?.to_string();
         let revision = deployment.csum().to_string();
         let merged = origin.boolean("rlxos", "merged").unwrap_or_else(|_| false);
 
         if !merged {
             return Ok(State {
+                revision: revision.clone(),
                 core: RefState { refspec, revision },
                 merged,
                 extensions: Vec::new(),
@@ -152,7 +150,7 @@ impl State {
         let commit = repo.load_variant(ObjectType::Commit, &revision)?;
         let commit_metadata = VariantDict::new(Some(&commit.child_value(0)));
 
-        let revision = get_revision(&commit_metadata, "core");
+        let core_revision = get_revision(&commit_metadata, "core");
 
         let extensions_refspec: Vec<String> = origin
             .string("rlxos", "extensions")
@@ -185,7 +183,11 @@ impl State {
         }
 
         Ok(State {
-            core: RefState { refspec, revision },
+            revision,
+            core: RefState {
+                refspec,
+                revision: core_revision,
+            },
             merged,
             extensions: extensions,
         })

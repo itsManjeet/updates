@@ -47,4 +47,7 @@ pub enum Error {
 
     #[error("engine is busy")]
     EngineIsBusy,
+
+    #[error("no updates available")]
+    NoUpdateAvailable,
 }

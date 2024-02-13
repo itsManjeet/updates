@@ -18,6 +18,14 @@ pub fn cmd() -> Command {
                 .value_parser(value_parser!(String)),
         )
         .arg(
+            Arg::new("exclude")
+                .short('e')
+                .long("exclude")
+                .help("Exclude extension in next deployment")
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(String)),
+        )
+        .arg(
             Arg::new("channel")
                 .short('c')
                 .long("channel")
@@ -63,17 +71,21 @@ pub async fn run(args: &ArgMatches, engine: &Engine) -> Result<(), Error> {
         state.extensions.clear();
     }
 
-    if let Some(channel) = args.get_one::<String>("channel") {
-        state.switch_channel(&channel);
-    }
-
     for ext in include.iter() {
         state.add_extension(ext);
+    }
+
+    if let Some(channel) = args.get_one::<String>("channel") {
+        state.switch_channel(&channel);
     }
 
     state
         .extensions
         .retain(|s| !exclude.contains(&s.get_data(RefData::Id)));
+
+    if state.extensions.len() > 0 {
+        state.merged = true;
+    }
 
     let (available, changelog) = engine.check(&state, Some(&progress), cancellable)?;
     if available {
@@ -86,6 +98,8 @@ pub async fn run(args: &ArgMatches, engine: &Engine) -> Result<(), Error> {
 
         info!("Applying updates");
         engine.apply(&state, Some(&progress), cancellable)?;
+    } else {
+        return Err(Error::NoUpdateAvailable);
     }
 
     Ok(())

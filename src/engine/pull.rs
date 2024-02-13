@@ -84,6 +84,7 @@ pub fn pull(
         changed,
         changelog,
         State {
+            revision: "".to_string(),
             core: changed_core,
             merged: state.merged,
             extensions: changed_extensions,

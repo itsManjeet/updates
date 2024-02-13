@@ -24,7 +24,7 @@ pub enum RefData {
 
 #[derive(Debug)]
 pub struct Engine {
-    sysroot: Sysroot,
+    pub sysroot: Sysroot,
 }
 
 impl Engine {
@@ -78,6 +78,7 @@ impl Engine {
         progress: Option<&AsyncProgress>,
         cancellable: Option<&Cancellable>,
     ) -> Result<(bool, String), Error> {
+        println!("state: {:?}", state);
         let (changed, changelog, _) = pull(
             &self.sysroot.repo(),
             &state,
@@ -117,7 +118,8 @@ impl Engine {
         progress: Option<&AsyncProgress>,
         cancellable: Option<&Cancellable>,
     ) -> Result<bool, Error> {
-        let updated_state = self.state()?.clone().switch_channel(channel);
+        let mut updated_state = self.state()?.clone();
+        updated_state.switch_channel(channel);
         info!("Updated state: {:?}", updated_state);
 
         let (changed, _, state) = pull(
@@ -140,7 +142,8 @@ impl Engine {
         progress: Option<&AsyncProgress>,
         cancellable: Option<&Cancellable>,
     ) -> Result<bool, Error> {
-        let updated_state = self.state()?.clone().switch_channel(channel);
+        let mut updated_state = self.state()?.clone();
+        updated_state.switch_channel(channel);
         let (changed, _, state) = pull(
             &self.sysroot.repo(),
             &updated_state,

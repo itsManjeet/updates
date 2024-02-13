@@ -10,16 +10,39 @@ pub fn cmd() -> Command {
 }
 
 pub async fn run(_: &ArgMatches, engine: &Engine) -> Result<(), Error> {
+    let booted_deployment = engine.sysroot.booted_deployment();
     for deployment in engine.states()?.iter() {
-        println!("{}", deployment.core.refspec);
+        let status = match &booted_deployment {
+            Some(booted_deployment) => {
+                if booted_deployment.csum() == deployment.revision {
+                    "*"
+                } else {
+                    "-"
+                }
+            }
+            None => "-",
+        };
+        println!(
+            "{status} {}:{}",
+            deployment.core.refspec,
+            truncate(&deployment.core.revision, 6)
+        );
+        println!("    merged    : {}", deployment.merged);
+        println!("    revision  : {}", truncate(&deployment.revision, 6));
+        if deployment.extensions.len() > 0 {
+            println!("    extensions: {}", deployment.extensions.len());
+            for ext in &deployment.extensions {
+                println!("        - {}:{}", ext.refspec, truncate(&ext.revision, 6));
+            }
+        }
     }
 
     Ok(())
 }
 
-// fn truncate(s: &str, max_chars: usize) -> &str {
-//     match s.char_indices().nth(max_chars) {
-//         None => s,
-//         Some((idx, _)) => &s[..idx],
-//     }
-// }
+fn truncate(s: &str, max_chars: usize) -> &str {
+    match s.char_indices().nth(max_chars) {
+        None => s,
+        Some((idx, _)) => &s[..idx],
+    }
+}
